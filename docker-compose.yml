@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  bot:
+    build: .
+    container_name: telebot-platform
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist SQLite database across container restarts
+      - bot_data:/data
+    # For webhook mode, uncomment and configure:
+    # ports:
+    #   - "8443:8443"
+
+volumes:
+  bot_data:
