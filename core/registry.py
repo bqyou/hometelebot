@@ -187,28 +187,31 @@ class MiniAppRegistry:
             except Exception as exc:
                 logger.error(f"Startup failed for '{name}': {exc}")
 
+    # Emoji hint per app name — extend as new apps are added
+    _APP_ICONS: dict[str, str] = {
+        "inventory": "\U0001f4e6",   # 📦
+        "food_menu": "\U0001f371",   # 🍱
+        "grocery":   "\U0001f6d2",   # 🛒
+    }
+
     def get_help_text(self) -> str:
         """Generate the /help text dynamically from all registered apps."""
-        lines = [
-            "Available Mini Apps",
-            "=" * 30,
-            "",
-        ]
+        lines = ["\U0001f4cb <b>Commands</b>", ""]
 
         for name, app in sorted(self._apps.items()):
-            lines.append(f"{app.description}")
+            icon = self._APP_ICONS.get(name, "\u25ab")  # ▫ fallback
+            lines.append(f"\u250c {icon} <b>{app.description}</b>")
             for cmd in app.commands:
-                lines.append(f"  /{cmd['command']} - {cmd['description']}")
+                lines.append(f"\u2502  /{cmd['command']} \u00b7 {cmd['description']}")
+            lines.append("\u2514")
             lines.append("")
 
-        lines.extend([
-            "System Commands",
-            "=" * 30,
-            "  /login - Log in with username and PIN",
-            "  /logout - End your session",
-            "  /help - Show this message",
-            "  /cancel - Cancel current operation",
-        ])
+        lines.append(f"\u250c \u2699\ufe0f <b>System</b>")
+        lines.append(f"\u2502  /login \u00b7 Sign in with your PIN")
+        lines.append(f"\u2502  /logout \u00b7 End your session")
+        lines.append(f"\u2502  /help \u00b7 Show this message")
+        lines.append(f"\u2502  /cancel \u00b7 Cancel current operation")
+        lines.append("\u2514")
 
         return "\n".join(lines)
 

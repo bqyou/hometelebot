@@ -9,7 +9,6 @@ Interaction model:
 - /inv_add NAME QTY UNIT -> Quick-add shortcut (e.g., /inv_add "Toilet Paper" 12 rolls)
 """
 
-import html
 import logging
 from typing import Any
 
@@ -34,11 +33,7 @@ from apps.inventory.models import InventoryItem
 
 logger = logging.getLogger(__name__)
 
-THIN_LINE  = "────────────"
-THICK_LINE = "━━━━━━━━━━━━"
-
-def _e(text: str) -> str:
-    return html.escape(str(text))
+from core.ui import e as _e, BOX_TOP, BOX_MID, BOX_BOT, DOT
 
 # Conversation states for adding an item
 ADD_NAME = 0
@@ -46,6 +41,7 @@ ADD_QTY = 1
 ADD_UNIT = 2
 ADD_THRESHOLD = 3
 ADD_CATEGORY = 4
+ADD_THRESHOLD_CUSTOM = 5
 
 # Conversation states for editing
 EDIT_SELECT_FIELD = 10
@@ -83,10 +79,14 @@ async def _show_inventory(
 
     if not items:
         text = (
-            "📦 <b>Inventory</b>\n\n"
-            "Your inventory is empty.\n\n"
-            "Tap <b>+ Add Item</b> to start tracking, or use:\n"
-            "<code>/inv_add \"Item Name\" 10 pcs</code>"
+            "\U0001f4e6 <b>Inventory</b>\n"
+            "\n"
+            "No items yet.\n"
+            "\n"
+            f"{BOX_TOP} <b>Quick start</b>\n"
+            f"{BOX_MID}  Tap <b>\uff0b Add</b> below, or\n"
+            f"{BOX_MID}  <code>/inv_add Rice 5 kg</code>\n"
+            f"{BOX_BOT}"
         )
     else:
         categories: dict[str, list[InventoryItem]] = {}
@@ -94,31 +94,29 @@ async def _show_inventory(
             cat = item.category or "General"
             categories.setdefault(cat, []).append(item)
 
-        lines = ["📦 <b>Inventory</b>"]
+        lines = ["\U0001f4e6 <b>Inventory</b>", ""]
         for cat_name, cat_items in sorted(categories.items()):
-            lines.append("")
-            lines.append(THICK_LINE)
-            lines.append(f"<b>{_e(cat_name)}</b>")
-            lines.append(THIN_LINE)
+            lines.append(f"{BOX_TOP} <b>{_e(cat_name)}</b>")
             for item in cat_items:
-                warning = " ⚠️" if item.is_low_stock else ""
-                lines.append(f"{_e(item.name)}: {item.quantity} {_e(item.unit)}{warning}")
+                low = "  \u26a0\ufe0f low" if item.is_low_stock else ""
+                lines.append(f"{BOX_MID}  {_e(item.name)} {DOT} {item.quantity} {_e(item.unit)}{low}")
+            lines.append(BOX_BOT)
+            lines.append("")
 
         low_stock_count = sum(1 for i in items if i.is_low_stock)
         if low_stock_count > 0:
-            lines.append("")
-            lines.append(f"⚠️ <b>{low_stock_count} item(s) low on stock</b>")
+            lines.append(f"\u26a0\ufe0f {low_stock_count} item(s) low on stock")
 
         text = "\n".join(lines)
 
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("+ Add Item", callback_data="inv:add"),
-            InlineKeyboardButton("Edit", callback_data="inv:edit_select"),
+            InlineKeyboardButton("\uff0b Add", callback_data="inv:add"),
+            InlineKeyboardButton("\u270f\ufe0f Edit", callback_data="inv:edit_select"),
         ],
         [
-            InlineKeyboardButton("Delete", callback_data="inv:del_select"),
-            InlineKeyboardButton("Refresh", callback_data="inv:refresh"),
+            InlineKeyboardButton("\U0001f5d1 Delete", callback_data="inv:del_select"),
+            InlineKeyboardButton("\U0001f504 Refresh", callback_data="inv:refresh"),
         ],
     ])
 
@@ -163,6 +161,10 @@ async def inventory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         item_id = int(data.split(":")[2])
         await _show_edit_options(update, item_id)
 
+    elif data.startswith("inv:del_confirm:"):
+        item_id = int(data.split(":")[2])
+        await _show_delete_confirm(update, item_id)
+
     elif data.startswith("inv:del:"):
         item_id = int(data.split(":")[2])
         await _delete_item(update, context, item_id, user.id)
@@ -190,18 +192,47 @@ async def _show_item_picker(update: Update, user_id: int, action: str) -> None:
         return
 
     # Build a grid of item buttons (2 per row)
+    # For delete, route to the confirm screen first rather than deleting immediately
+    cb_action = "del_confirm" if action == "del" else action
     buttons = []
     for item in items:
         label = f"{item.name} ({item.quantity})"
-        buttons.append(InlineKeyboardButton(label, callback_data=f"inv:{action}:{item.id}"))
+        buttons.append(InlineKeyboardButton(label, callback_data=f"inv:{cb_action}:{item.id}"))
 
     rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
-    rows.append([InlineKeyboardButton("<< Back", callback_data="inv:refresh")])
+    rows.append([InlineKeyboardButton("\u2190 Back", callback_data="inv:refresh")])
 
     action_label = "edit" if action == "edit" else "delete"
+    icon = "\u270f\ufe0f" if action == "edit" else "\U0001f5d1"
     await update.callback_query.edit_message_text(
-        f"Select an item to {action_label}:",
+        f"{icon} Select an item to {action_label}:",
         reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def _show_delete_confirm(update: Update, item_id: int) -> None:
+    """Ask the user to confirm before deleting an item."""
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(InventoryItem).where(InventoryItem.id == item_id)
+        )
+        item = result.scalar_one_or_none()
+
+    if not item:
+        await update.callback_query.edit_message_text("Item not found.")
+        return
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("\u2713 Yes, delete", callback_data=f"inv:del:{item_id}"),
+            InlineKeyboardButton("\u2190 Cancel", callback_data="inv:del_select"),
+        ]
+    ])
+    await update.callback_query.edit_message_text(
+        f"\U0001f5d1 Delete <b>{_e(item.name)}</b>?\n"
+        f"{item.quantity} {_e(item.unit)} {DOT} {_e(item.category or 'General')}",
+        reply_markup=keyboard,
+        parse_mode="HTML",
     )
 
 
@@ -219,12 +250,14 @@ async def _show_edit_options(update: Update, item_id: int) -> None:
 
     threshold_text = str(item.low_stock_threshold) if item.low_stock_threshold else "None"
     text = (
-        f"✏️ <b>{_e(item.name)}</b>\n"
-        f"{THIN_LINE}\n"
-        f"Quantity:  {item.quantity} {_e(item.unit)}\n"
-        f"Category:  {_e(item.category or 'General')}\n"
-        f"Alert at:  ≤ {threshold_text}\n"
-        f"{THIN_LINE}\n"
+        f"\u270f\ufe0f <b>{_e(item.name)}</b>\n"
+        f"\n"
+        f"{BOX_TOP} <b>Details</b>\n"
+        f"{BOX_MID}  Qty {DOT} {item.quantity} {_e(item.unit)}\n"
+        f"{BOX_MID}  Category {DOT} {_e(item.category or 'General')}\n"
+        f"{BOX_MID}  Alert at {DOT} \u2264 {threshold_text}\n"
+        f"{BOX_BOT}\n"
+        f"\n"
         f"Adjust quantity:"
     )
 
@@ -239,7 +272,7 @@ async def _show_edit_options(update: Update, item_id: int) -> None:
             InlineKeyboardButton("-10", callback_data=f"inv:qty:{item_id}:-10"),
             InlineKeyboardButton("+10", callback_data=f"inv:qty:{item_id}:10"),
         ],
-        [InlineKeyboardButton("<< Back to List", callback_data="inv:refresh")],
+        [InlineKeyboardButton("\u2190 Back", callback_data="inv:refresh")],
     ])
 
     await update.callback_query.edit_message_text(
@@ -298,7 +331,7 @@ async def add_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle the [Add Item] button press. Start the add-item conversation."""
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("What item do you want to add?\n(Type the name)")
+    await query.edit_message_text("\uff0b <b>Add Item</b>\n\nType the item name:", parse_mode="HTML")
     return ADD_NAME
 
 
@@ -311,7 +344,7 @@ async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ADD_NAME
 
     context.user_data["inv_add_name"] = name
-    await update.message.reply_text(f"How many '{name}' do you have? (enter a number)")
+    await update.message.reply_text(f"How many <b>{_e(name)}</b> do you have?", parse_mode="HTML")
     return ADD_QTY
 
 
@@ -352,27 +385,65 @@ async def add_unit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     buttons = InlineKeyboardMarkup([
         [
+            InlineKeyboardButton("1", callback_data="inv:thresh:1"),
             InlineKeyboardButton("2", callback_data="inv:thresh:2"),
             InlineKeyboardButton("5", callback_data="inv:thresh:5"),
-            InlineKeyboardButton("10", callback_data="inv:thresh:10"),
             InlineKeyboardButton("Skip", callback_data="inv:thresh:0"),
-        ]
+        ],
+        [
+            InlineKeyboardButton("Custom\u2026", callback_data="inv:thresh:custom"),
+        ],
     ])
     await query.edit_message_text(
-        f"Set low stock alert threshold?\n(You'll get a warning when stock falls to this level)",
+        "Set a low stock alert threshold?\n<i>You\u2019ll see a warning when stock reaches this level</i>",
         reply_markup=buttons,
+        parse_mode="HTML",
     )
     return ADD_THRESHOLD
 
 
 @require_auth
 async def add_threshold_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Received threshold. Ask for category."""
+    """Received threshold button press. If 'custom', ask user to type a number."""
     query = update.callback_query
     await query.answer()
 
-    context.user_data["inv_add_threshold"] = int(query.data.split(":")[2])
+    value = query.data.split(":")[2]
 
+    if value == "custom":
+        await query.edit_message_text(
+            "Type your threshold number:",
+        )
+        return ADD_THRESHOLD_CUSTOM
+
+    context.user_data["inv_add_threshold"] = int(value)
+    return await _ask_category(query)
+
+
+@require_auth
+async def add_threshold_custom(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Received a typed threshold value. Validate and proceed to category."""
+    text = update.message.text.strip()
+    try:
+        value = int(text)
+        if value < 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("Please enter a valid non-negative whole number:")
+        return ADD_THRESHOLD_CUSTOM
+
+    context.user_data["inv_add_threshold"] = value
+    # Send a fresh message since we're coming from a text reply
+    buttons = InlineKeyboardMarkup([[
+        InlineKeyboardButton(cat, callback_data=f"inv:cat:{cat}")
+        for cat in CATEGORY_OPTIONS
+    ]])
+    await update.message.reply_text("Which category?", reply_markup=buttons)
+    return ADD_CATEGORY
+
+
+async def _ask_category(query) -> int:
+    """Edit the current message to show the category picker."""
     buttons = InlineKeyboardMarkup([[
         InlineKeyboardButton(cat, callback_data=f"inv:cat:{cat}")
         for cat in CATEGORY_OPTIONS
@@ -405,13 +476,8 @@ async def add_category_callback(update: Update, context: ContextTypes.DEFAULT_TY
         ))
         await db.commit()
 
-    threshold_text = f", alert at {threshold}" if threshold > 0 else ""
-    await query.edit_message_text(
-        f"✅ Added <b>{_e(name)}</b>\n"
-        f"{qty} {_e(unit)}  ·  {_e(category)}{_e(threshold_text)}\n\n"
-        f"Use /inv to view your inventory.",
-        parse_mode="HTML",
-    )
+    # Show the updated inventory directly — closes the loop without forcing the user to type /inv
+    await _show_inventory(update, context, user.id, edit_message=True)
     return ConversationHandler.END
 
 
@@ -500,7 +566,7 @@ async def quick_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await db.commit()
 
     await update.message.reply_text(
-        f"✅ Added <b>{_e(name)}</b>\n{qty} {_e(unit)}  ·  {_e(category)}",
+        f"\u2705 Added <b>{_e(name)}</b> {DOT} {qty} {_e(unit)} {DOT} {_e(category)}",
         parse_mode="HTML",
     )
 
@@ -527,6 +593,9 @@ def get_add_conversation_handler() -> ConversationHandler:
             ],
             ADD_THRESHOLD: [
                 CallbackQueryHandler(add_threshold_callback, pattern="^inv:thresh:"),
+            ],
+            ADD_THRESHOLD_CUSTOM: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_threshold_custom),
             ],
             ADD_CATEGORY: [
                 CallbackQueryHandler(add_category_callback, pattern="^inv:cat:"),

@@ -134,7 +134,8 @@ def require_auth(handler_func: Callable) -> Callable:
 
         if session_data is None:
             await update.message.reply_text(
-                "You are not logged in. Use /login to authenticate first."
+                "\U0001f512 Not logged in \u00b7 use /login to authenticate",
+                parse_mode="HTML",
             )
             return
 
@@ -159,12 +160,16 @@ async def login_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if session_data:
         _, user = session_data
         await update.message.reply_text(
-            f"You are already logged in as {user.username}.\n"
-            f"Use /logout to switch accounts."
+            f"\u2705 Already signed in as <b>{user.username}</b>\n"
+            f"Use /logout to switch accounts.",
+            parse_mode="HTML",
         )
         return ConversationHandler.END
 
-    await update.message.reply_text("Please enter your username:")
+    await update.message.reply_text(
+        "\U0001f511 <b>Login</b>\n\nEnter your username:",
+        parse_mode="HTML",
+    )
     return USERNAME_STATE
 
 
@@ -174,8 +179,9 @@ async def login_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["login_username"] = username
 
     await update.message.reply_text(
-        "Enter your PIN:\n"
-        "(Your message will be deleted immediately for security)"
+        "\U0001f510 Enter your PIN\n"
+        "<i>Your message will be deleted for security</i>",
+        parse_mode="HTML",
     )
     return PIN_STATE
 
@@ -199,14 +205,16 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user = result.scalar_one_or_none()
 
         if user is None:
-            await update.effective_chat.send_message("Invalid username or PIN. Try /login again.")
+            await update.effective_chat.send_message(
+                "\u274c Invalid username or PIN \u00b7 try /login again"
+            )
             return ConversationHandler.END
 
         # Check lockout
         if user.locked_until and user.locked_until > datetime.utcnow():
             remaining = (user.locked_until - datetime.utcnow()).seconds // 60
             await update.effective_chat.send_message(
-                f"Account is locked. Try again in {remaining + 1} minutes."
+                f"\u23f3 Account locked \u00b7 try again in {remaining + 1} min"
             )
             return ConversationHandler.END
 
@@ -220,14 +228,14 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 )
                 await db.commit()
                 await update.effective_chat.send_message(
-                    f"Too many failed attempts. Account locked for "
-                    f"{settings.lockout_duration_minutes} minutes."
+                    f"\u26d4 Too many attempts \u00b7 locked for "
+                    f"{settings.lockout_duration_minutes} min"
                 )
             else:
                 await db.commit()
                 remaining = settings.max_login_attempts - user.failed_login_attempts
                 await update.effective_chat.send_message(
-                    f"Invalid PIN. {remaining} attempts remaining. Try /login again."
+                    f"\u274c Wrong PIN \u00b7 {remaining} attempt(s) left \u00b7 try /login again"
                 )
             return ConversationHandler.END
 
@@ -243,16 +251,17 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     display = user.display_name or user.username
     await update.effective_chat.send_message(
-        f"Welcome back, {display}!\n"
-        f"Session valid for {settings.session_duration_hours} hours.\n\n"
-        f"Type /help to see available commands."
+        f"\U0001f44b <b>Welcome back, {display}!</b>\n"
+        f"\n"
+        f"Session valid for {settings.session_duration_hours}h \u00b7 /help for commands",
+        parse_mode="HTML",
     )
     return ConversationHandler.END
 
 
 async def login_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the login flow."""
-    await update.message.reply_text("Login cancelled.")
+    await update.message.reply_text("\u2716 Login cancelled")
     return ConversationHandler.END
 
 
@@ -260,7 +269,7 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle /logout -- invalidate the current session."""
     chat_id = str(update.effective_chat.id)
     await invalidate_session(chat_id)
-    await update.message.reply_text("You have been logged out. Use /login to sign in again.")
+    await update.message.reply_text("\U0001f44b Signed out \u00b7 /login to sign in again")
 
 
 # ============================================================

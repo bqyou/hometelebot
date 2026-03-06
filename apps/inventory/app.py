@@ -42,7 +42,7 @@ class InventoryApp(BaseMiniApp):
 
         # All other inventory callbacks (edit, delete, refresh, qty adjust)
         app.add_handler(
-            CallbackQueryHandler(inventory_callback, pattern=r"^inv:(refresh|edit_select|del_select|edit:\d+|del:\d+|qty:\d+:-?\d+)$")
+            CallbackQueryHandler(inventory_callback, pattern=r"^inv:(refresh|edit_select|del_select|edit:\d+|del_confirm:\d+|del:\d+|qty:\d+:-?\d+)$")
         )
 
     def get_models(self) -> list:

@@ -10,7 +10,6 @@ Interaction model:
 - [Clear Bought] button      -> Remove all checked-off items
 """
 
-import html
 import logging
 from datetime import datetime
 
@@ -35,11 +34,7 @@ from apps.grocery.models import GroceryList, GroceryListMember, GroceryItem
 
 logger = logging.getLogger(__name__)
 
-THIN_LINE  = "────────────"
-THICK_LINE = "━━━━━━━━━━━━"
-
-def _e(text: str) -> str:
-    return html.escape(str(text))
+from core.ui import e as _e, BOX_TOP, BOX_MID, BOX_BOT, DOT
 
 # Conversation state for adding items
 ADDING_ITEMS = 0
@@ -126,39 +121,38 @@ async def _show_grocery_list(
 
     if not items:
         text = (
-            "🛒 <b>Shopping List</b>\n\n"
-            "Your list is empty.\n\n"
-            "Add items with:\n"
-            "<code>/grocery add milk, eggs, bread</code>\n"
-            "or tap <b>+ Add Items</b> below"
+            "\U0001f6d2 <b>Shopping List</b>\n"
+            "\n"
+            "Your list is empty.\n"
+            "\n"
+            f"{BOX_TOP} <b>Quick start</b>\n"
+            f"{BOX_MID}  Tap <b>\uff0b Add</b> below, or\n"
+            f"{BOX_MID}  <code>/grocery add milk, eggs, bread</code>\n"
+            f"{BOX_BOT}"
         )
     else:
         pending = [i for i in items if not i.is_bought]
         bought  = [i for i in items if i.is_bought]
 
-        lines = ["🛒 <b>Shopping List</b>"]
+        lines = ["\U0001f6d2 <b>Shopping List</b>", ""]
 
         if pending:
-            lines.append("")
-            lines.append(THICK_LINE)
-            lines.append(f"<b>To Buy</b>  ({len(pending)})")
-            lines.append(THIN_LINE)
+            lines.append(f"{BOX_TOP} <b>To Buy</b>  ({len(pending)})")
             for item in pending:
                 qty = f"  <i>({_e(item.quantity)})</i>" if item.quantity else ""
-                lines.append(f"{_e(item.name)}{qty}")
+                lines.append(f"{BOX_MID}  \u25cb {_e(item.name)}{qty}")
+            lines.append(BOX_BOT)
+            lines.append("")
 
         if bought:
-            lines.append("")
-            lines.append(THICK_LINE)
-            lines.append(f"<b>Bought</b>  ({len(bought)})")
-            lines.append(THIN_LINE)
+            lines.append(f"{BOX_TOP} <b>Bought</b>  ({len(bought)})")
             for item in bought:
                 qty = f"  <i>({_e(item.quantity)})</i>" if item.quantity else ""
-                lines.append(f"✓ {_e(item.name)}{qty}")
+                lines.append(f"{BOX_MID}  \u2713 {_e(item.name)}{qty}")
+            lines.append(BOX_BOT)
+            lines.append("")
 
-        lines.append("")
-        lines.append(THIN_LINE)
-        lines.append(f"{len(pending)} to buy  ·  {len(bought)} bought")
+        lines.append(f"{len(pending)} to buy {DOT} {len(bought)} bought")
         text = "\n".join(lines)
 
     # Build item toggle buttons (show pending items as tappable)
@@ -172,7 +166,7 @@ async def _show_grocery_list(
             for item in pending_items[i : i + 2]:
                 row.append(
                     InlineKeyboardButton(
-                        f"Check: {item.name}",
+                        f"\u25cb {item.name}",
                         callback_data=f"groc:toggle:{item.id}",
                     )
                 )
@@ -186,7 +180,7 @@ async def _show_grocery_list(
             for item in bought_items[i : i + 2]:
                 row.append(
                     InlineKeyboardButton(
-                        f"Uncheck: {item.name}",
+                        f"\u2713 {item.name}",
                         callback_data=f"groc:toggle:{item.id}",
                     )
                 )
@@ -194,11 +188,11 @@ async def _show_grocery_list(
 
     # Action buttons
     keyboard_rows.append([
-        InlineKeyboardButton("+ Add Items", callback_data="groc:add"),
-        InlineKeyboardButton("Clear Bought", callback_data="groc:clear"),
+        InlineKeyboardButton("\uff0b Add", callback_data="groc:add"),
+        InlineKeyboardButton("\U0001f9f9 Clear Bought", callback_data="groc:clear"),
     ])
     keyboard_rows.append([
-        InlineKeyboardButton("Refresh", callback_data="groc:refresh"),
+        InlineKeyboardButton("\U0001f504 Refresh", callback_data="groc:refresh"),
     ])
 
     keyboard = InlineKeyboardMarkup(keyboard_rows)
@@ -245,8 +239,8 @@ async def _quick_add_items(update: Update, user_id: int, items_text: str) -> Non
 
     names = ", ".join(raw_items)
     await update.message.reply_text(
-        f"Added {len(raw_items)} item(s): {names}\n"
-        f"Use /grocery to view your list."
+        f"\u2705 Added {len(raw_items)} item(s): {names}\n"
+        f"/grocery to view your list"
     )
 
 
@@ -313,8 +307,8 @@ async def _clear_bought(update: Update, user_id: int) -> None:
         count = result.rowcount
 
     await update.message.reply_text(
-        f"Cleared {count} bought item(s) from the list.\n"
-        f"Use /grocery to view your list."
+        f"\U0001f9f9 Cleared {count} bought item(s)\n"
+        f"/grocery to view your list"
     )
 
 
@@ -348,8 +342,11 @@ async def add_items_start(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "Type the items you want to add, separated by commas:\n\n"
-        "Example: milk, eggs, bread, 2x butter"
+        "\uff0b <b>Add Items</b>\n"
+        "\n"
+        "Type items separated by commas:\n"
+        "<i>milk, eggs, bread, 2x butter</i>",
+        parse_mode="HTML",
     )
     return ADDING_ITEMS
 

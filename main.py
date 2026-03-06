@@ -30,9 +30,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Reduce noise from httpx and telegram library internals
+# Reduce noise from httpx, telegram, and APScheduler internals
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 
 # ============================================================
@@ -49,18 +50,23 @@ registry = MiniAppRegistry()
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start -- welcome message for new users."""
     await update.message.reply_text(
-        "Welcome to TeleBot!\n\n"
-        "This is your personal command center with mini apps "
-        "for inventory tracking, meal planning, grocery lists, and more.\n\n"
-        "To get started, use /login with your username and PIN.\n"
-        "Type /help to see all available commands."
+        "\U0001f916 <b>Welcome to TeleBot</b>\n"
+        "\n"
+        "Your personal command center for\n"
+        "inventory, meal planning, groceries & more.\n"
+        "\n"
+        "\u250c <b>Get started</b>\n"
+        "\u2502  /login \u00b7 Sign in with your PIN\n"
+        "\u2502  /help  \u00b7 See all commands\n"
+        "\u2514",
+        parse_mode="HTML",
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help -- show all available commands from registered mini apps."""
     help_text = registry.get_help_text()
-    await update.message.reply_text(help_text)
+    await update.message.reply_text(help_text, parse_mode="HTML")
 
 
 # ============================================================

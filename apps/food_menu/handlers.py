@@ -6,7 +6,6 @@ Callback data format:  menu:SCOPE:FILTER
   FILTER  — lunch | dinner | all
 """
 
-import html
 import logging
 from datetime import date, timedelta
 
@@ -21,6 +20,7 @@ from apps.food_menu.models import MenuWeek, MenuItem
 logger = logging.getLogger(__name__)
 
 DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri"]  # matches DAYS_OF_WEEK index
 
 COURSE_LABELS = {
     "soup": "Soup",
@@ -30,8 +30,7 @@ COURSE_LABELS = {
     "side": "Side",
 }
 
-THIN_LINE  = "────────────"
-THICK_LINE = "━━━━━━━━━━━━"
+from core.ui import e as _e, BOX_TOP, BOX_MID, BOX_BOT, DOT
 
 
 # ============================================================
@@ -77,35 +76,33 @@ def _fmt_date(d: date, include_year: bool = False) -> str:
     return f"{base} {d.year}" if include_year else base
 
 
-def _e(text: str) -> str:
-    """HTML-escape a string for Telegram HTML parse mode."""
-    return html.escape(text)
-
 
 # ============================================================
 # Message formatters
 # ============================================================
 
 def _format_meal_block(items: list[MenuItem], day: str, meal_type: str) -> list[str]:
-    """Lines for one meal section, with a thin divider header."""
-    label = "LUNCH" if meal_type == "lunch" else "DINNER"
+    """Lines for one meal section using box-drawing characters."""
+    icon = "\U0001f31e" if meal_type == "lunch" else "\U0001f319"
+    label = "Lunch" if meal_type == "lunch" else "Dinner"
     meal_items = [i for i in items if i.day_of_week == day and i.meal_type == meal_type]
 
-    lines = [THIN_LINE, f"<b>{label}</b>", ""]
+    lines = [f"{BOX_TOP} {icon} <b>{label}</b>"]
 
     if not meal_items:
-        lines.append("(No data available)")
+        lines.append(f"{BOX_MID}  <i>No data</i>")
+        lines.append(BOX_BOT)
         return lines
 
     for course_key in ("soup", "dish_1", "dish_2", "dish_3", "side"):
         dish = next((i for i in meal_items if i.course_type == course_key), None)
         if not dish:
             continue
-        spicy = " 🌶️" if dish.is_spicy else ""
-        lines.append(f"{COURSE_LABELS[course_key]}: {_e(dish.name_en)}{spicy}")
-        if dish.name_zh:
-            lines.append(_e(dish.name_zh))
+        spicy = " \U0001f336\ufe0f" if dish.is_spicy else ""
+        zh = f"  <i>{_e(dish.name_zh)}</i>" if dish.name_zh else ""
+        lines.append(f"{BOX_MID}  {COURSE_LABELS[course_key]} {DOT} {_e(dish.name_en)}{spicy}{zh}")
 
+    lines.append(BOX_BOT)
     return lines
 
 
@@ -113,10 +110,9 @@ def _format_day_text(
     day: str, items: list[MenuItem], meal_filter: str,
     date_range: str, week_start: date,
 ) -> str:
-    """Full day view with date, dividers, and all courses."""
+    """Full day view with date and box-drawn meal sections."""
     d = _day_date(week_start, day)
-    header = f"📅 <b>{day}, {_fmt_date(d, include_year=True)}</b>"
-    lines = [header, ""]
+    lines = [f"\U0001f4c5 <b>{day}, {_fmt_date(d, include_year=True)}</b>", ""]
 
     if meal_filter in ("all", "lunch"):
         lines.extend(_format_meal_block(items, day, "lunch"))
@@ -132,17 +128,16 @@ def _format_week_text(
     items: list[MenuItem], meal_filter: str,
     date_range: str, is_next: bool, week_start: date,
 ) -> str:
-    """Full week view — each day formatted like the day view, separated by thick lines."""
+    """Full week view — each day with box-drawn meal sections."""
     week_label = "Next Week" if is_next else "This Week"
-    lines = [f"📆 <b>{week_label}</b>  ({_e(date_range)})", ""]
+    lines = [f"\U0001f4c6 <b>{week_label}</b>  ({_e(date_range)})", ""]
 
     for day in DAYS_OF_WEEK:
         d = _day_date(week_start, day)
-        lines.append(THICK_LINE)
-        lines.append(f"📅 <b>{day}, {_fmt_date(d)}</b>")
+        lines.append(f"\U0001f4c5 <b>{day}, {_fmt_date(d)}</b>")
+        lines.append("")
 
         if meal_filter in ("all", "lunch"):
-            lines.append("")
             lines.extend(_format_meal_block(items, day, "lunch"))
             lines.append("")
 
@@ -178,8 +173,16 @@ def _day_keyboard(meal_filter: str) -> InlineKeyboardMarkup:
 
 
 def _week_keyboard(meal_filter: str, is_next: bool) -> InlineKeyboardMarkup:
-    """Keyboard for a week overview — filter toggle + navigation."""
+    """Keyboard for a week overview — filter toggle + day shortcuts + navigation."""
     scope = "next" if is_next else "week"
+    prefix = "nday_" if is_next else "day_"
+
+    # One button per weekday so users can drill in without scrolling
+    day_row = [
+        InlineKeyboardButton(short, callback_data=f"menu:{prefix}{short}:{meal_filter}")
+        for short in DAY_SHORT
+    ]
+
     if is_next:
         nav = [
             InlineKeyboardButton("Today", callback_data=f"menu:today:{meal_filter}"),
@@ -190,7 +193,20 @@ def _week_keyboard(meal_filter: str, is_next: bool) -> InlineKeyboardMarkup:
             InlineKeyboardButton("Today", callback_data=f"menu:today:{meal_filter}"),
             InlineKeyboardButton("Next Week", callback_data=f"menu:next:{meal_filter}"),
         ]
-    return InlineKeyboardMarkup([_filter_row(scope, meal_filter), nav])
+    return InlineKeyboardMarkup([_filter_row(scope, meal_filter), day_row, nav])
+
+
+def _specific_day_keyboard(meal_filter: str, is_next: bool) -> InlineKeyboardMarkup:
+    """Keyboard for a specific-day drill-in — filter toggle + back to week."""
+    back_scope = "next" if is_next else "week"
+    back_label = "Next Week" if is_next else "This Week"
+    return InlineKeyboardMarkup([
+        _filter_row("today", meal_filter),  # reuse today filter scope for day view
+        [
+            InlineKeyboardButton(f"\u2190 {back_label}", callback_data=f"menu:{back_scope}:{meal_filter}"),
+            InlineKeyboardButton("Today", callback_data=f"menu:today:{meal_filter}"),
+        ],
+    ])
 
 
 # ============================================================
@@ -204,8 +220,8 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     if week is None:
         await update.message.reply_text(
-            "❌ No menu data available for this week.\n\n"
-            "Use /menu_refresh to fetch the latest menu."
+            "\U0001f371 <b>Menu</b>\n\nNo data for this week \u00b7 /menu_refresh to fetch",
+            parse_mode="HTML",
         )
         return
 
@@ -234,11 +250,13 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     _, scope, meal_filter = parts
 
-    target = date.today() + timedelta(days=7) if scope == "next" else date.today()
+    # Resolve which week to load and whether this is a specific-day drill-in
+    is_next = scope.startswith("nday_") or scope == "next"
+    target = date.today() + timedelta(days=7) if is_next else date.today()
 
     week, items = await _get_week_menu(target)
     if week is None:
-        await query.edit_message_text("❌ No menu data available for that period.")
+        await query.edit_message_text("\u274c No menu data for that period")
         return
 
     date_range = f"{week.week_start.day} {week.week_start.strftime('%b')} – {week.week_end.day} {week.week_end.strftime('%b %Y')}"
@@ -251,17 +269,22 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode="HTML",
         )
 
-    elif scope == "week":
+    elif scope in ("week", "next"):
         await query.edit_message_text(
-            text=_format_week_text(items, meal_filter, date_range, is_next=False, week_start=week.week_start),
-            reply_markup=_week_keyboard(meal_filter, is_next=False),
+            text=_format_week_text(items, meal_filter, date_range, is_next=is_next, week_start=week.week_start),
+            reply_markup=_week_keyboard(meal_filter, is_next=is_next),
             parse_mode="HTML",
         )
 
-    elif scope == "next":
+    elif scope.startswith("day_") or scope.startswith("nday_"):
+        # e.g. "day_Mon" → "Mon" → "Monday"
+        short = scope.split("_", 1)[1]
+        if short not in DAY_SHORT:
+            return
+        day_name = DAYS_OF_WEEK[DAY_SHORT.index(short)]
         await query.edit_message_text(
-            text=_format_week_text(items, meal_filter, date_range, is_next=True, week_start=week.week_start),
-            reply_markup=_week_keyboard(meal_filter, is_next=True),
+            text=_format_day_text(day_name, items, meal_filter, date_range, week.week_start),
+            reply_markup=_specific_day_keyboard(meal_filter, is_next=is_next),
             parse_mode="HTML",
         )
 
@@ -275,14 +298,13 @@ async def menu_refresh_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handle /menu_refresh — force a re-scrape of the Tingkat website."""
     from apps.food_menu.scraper import scrape_menu
 
-    await update.message.reply_text("🔄 Scraping the latest menu… (this may take a few seconds)")
+    await update.message.reply_text("\U0001f504 Fetching latest menu\u2026")
 
     try:
         week_data_list = await scrape_menu()
         if not week_data_list:
             await update.message.reply_text(
-                "⚠️ Scraping completed but no menu data was found.\n"
-                "The website format may have changed."
+                "\u26a0\ufe0f No menu data found \u00b7 website format may have changed"
             )
             return
 
@@ -333,15 +355,15 @@ async def menu_refresh_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
         logger.info(f"menu_refresh: {inserted_weeks} new week(s), {inserted_items} new item(s)")
         await update.message.reply_text(
-            f"✅ Menu updated!\n"
-            f"  • {inserted_weeks} new week(s)\n"
-            f"  • {inserted_items} item(s) saved\n\n"
-            f"Use /menu to view the menu."
+            f"\u2705 Menu updated\n"
+            f"{inserted_weeks} week(s) {DOT} {inserted_items} item(s)\n"
+            f"\n"
+            f"/menu to view"
         )
 
     except Exception as exc:
         logger.error(f"Menu scrape failed: {exc}", exc_info=True)
         await update.message.reply_text(
-            f"❌ Scraping failed: {_e(str(exc))}\n"
-            f"The website may be temporarily unavailable."
+            f"\u274c Scrape failed: {_e(str(exc))}",
+            parse_mode="HTML",
         )
