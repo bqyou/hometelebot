@@ -89,7 +89,8 @@ async def grocery_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not items_text:
             await update.message.reply_text(
                 "Usage: /grocery add milk, eggs, bread\n"
-                "(Separate items with commas)"
+                "(Separate items with commas)",
+                parse_mode="HTML",
             )
             return
         await _quick_add_items(update, user.id, items_text)
@@ -237,10 +238,11 @@ async def _quick_add_items(update: Update, user_id: int, items_text: str) -> Non
             db.add(item)
         await db.commit()
 
-    names = ", ".join(raw_items)
+    names = ", ".join(_e(n) for n in raw_items)
     await update.message.reply_text(
         f"\u2705 Added {len(raw_items)} item(s): {names}\n"
-        f"/grocery to view your list"
+        f"/grocery to view your list",
+        parse_mode="HTML",
     )
 
 
@@ -308,7 +310,8 @@ async def _clear_bought(update: Update, user_id: int) -> None:
 
     await update.message.reply_text(
         f"\U0001f9f9 Cleared {count} bought item(s)\n"
-        f"/grocery to view your list"
+        f"/grocery to view your list",
+        parse_mode="HTML",
     )
 
 
