@@ -58,6 +58,31 @@ async def _get_week_menu(target_date: date) -> tuple[MenuWeek | None, list[MenuI
         return week, items_result.scalars().all()
 
 
+async def _get_best_week(target_date: date) -> tuple[MenuWeek | None, list[MenuItem]]:
+    """Return week containing target_date, or the nearest upcoming week if none found."""
+    week, items = await _get_week_menu(target_date)
+    if week is not None:
+        return week, items
+
+    # Fallback: find the earliest week starting on or after target_date
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(MenuWeek)
+            .where(MenuWeek.week_start >= target_date)
+            .order_by(MenuWeek.week_start)
+            .limit(1)
+        )
+        week = result.scalar_one_or_none()
+        if week is None:
+            return None, []
+        items_result = await db.execute(
+            select(MenuItem)
+            .where(MenuItem.menu_week_id == week.id)
+            .order_by(MenuItem.day_of_week, MenuItem.meal_type, MenuItem.course_type)
+        )
+        return week, items_result.scalars().all()
+
+
 def _get_today_day_name() -> str:
     """Today's weekday name; defaults to Monday on weekends."""
     idx = date.today().weekday()
@@ -124,13 +149,28 @@ def _format_day_text(
     return "\n".join(lines).rstrip()
 
 
+def _week_label(week_start: date, week_end: date) -> str:
+    """Compute a human label for a week relative to today."""
+    today = date.today()
+    if week_start <= today <= week_end:
+        return "This Week"
+    next_monday = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+    if week_start == next_monday:
+        return "Next Week"
+    return "Upcoming Week"
+
+
 def _format_week_text(
     items: list[MenuItem], meal_filter: str,
     date_range: str, is_next: bool, week_start: date,
+    week_end: date | None = None,
 ) -> str:
     """Full week view — each day with box-drawn meal sections."""
-    week_label = "Next Week" if is_next else "This Week"
-    lines = [f"\U0001f4c6 <b>{week_label}</b>  ({_e(date_range)})", ""]
+    if week_end is not None:
+        label = _week_label(week_start, week_end)
+    else:
+        label = "Next Week" if is_next else "This Week"
+    lines = [f"\U0001f4c6 <b>{label}</b>  ({_e(date_range)})", ""]
 
     for day in DAYS_OF_WEEK:
         d = _day_date(week_start, day)
@@ -216,7 +256,7 @@ def _specific_day_keyboard(meal_filter: str, is_next: bool) -> InlineKeyboardMar
 @require_auth
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /menu — show today's menu."""
-    week, items = await _get_week_menu(date.today())
+    week, items = await _get_best_week(date.today())
 
     if week is None:
         await update.message.reply_text(
@@ -254,7 +294,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     is_next = scope.startswith("nday_") or scope == "next"
     target = date.today() + timedelta(days=7) if is_next else date.today()
 
-    week, items = await _get_week_menu(target)
+    week, items = await _get_best_week(target)
     if week is None:
         await query.edit_message_text("\u274c No menu data for that period")
         return
@@ -271,7 +311,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     elif scope in ("week", "next"):
         await query.edit_message_text(
-            text=_format_week_text(items, meal_filter, date_range, is_next=is_next, week_start=week.week_start),
+            text=_format_week_text(items, meal_filter, date_range, is_next=is_next, week_start=week.week_start, week_end=week.week_end),
             reply_markup=_week_keyboard(meal_filter, is_next=is_next),
             parse_mode="HTML",
         )
