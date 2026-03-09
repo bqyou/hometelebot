@@ -14,24 +14,29 @@ from sqlalchemy.orm import DeclarativeBase
 
 from config import settings
 
+# Normalise Railway's postgresql:// → postgresql+asyncpg://
+_db_url = settings.database_url
+if _db_url.startswith("postgresql://") or _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("://", "+asyncpg://", 1)
+
 
 # --- Engine ---
 # For SQLite, enable WAL mode for better concurrent read performance.
 # For PostgreSQL, pool_size and max_overflow handle connection pooling.
-if settings.database_url.startswith("sqlite"):
+if _db_url.startswith("sqlite"):
     engine = create_async_engine(
-        settings.database_url,
+        _db_url,
         echo=False,
         connect_args={"check_same_thread": False},
     )
 else:
     engine = create_async_engine(
-        settings.database_url,
+        _db_url,
         echo=False,
         pool_size=5,
         max_overflow=10,
-        pool_pre_ping=True,   # test connections before use; drops stale ones silently
-        pool_recycle=1800,    # recycle connections after 30 min (well under MySQL wait_timeout)
+        pool_pre_ping=True,
+        pool_recycle=1800,
     )
 
 # --- Session Factory ---
