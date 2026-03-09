@@ -20,8 +20,11 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
-# Migration exports (contain user data)
+# Migration exports and one-off scripts (contain or accept sensitive DB URLs)
 export.json
+scripts/export_data.py
+scripts/import_data.py
+scripts/fix_sequences.py
 
 #claude
 .claude/
