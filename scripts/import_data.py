@@ -1,18 +1,28 @@
 """Import JSON export into target database (PostgreSQL on Railway).
 
 Usage:
-  set DATABASE_URL=postgresql+asyncpg://postgres:PASSWORD@HOST:PORT/railway
-  python scripts/import_data.py
+  python scripts/import_data.py postgresql+asyncpg://postgres:PASSWORD@HOST:PORT/railway
 """
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+if len(sys.argv) < 2:
+    print("Usage: python scripts/import_data.py <DATABASE_URL>")
+    print("Example: python scripts/import_data.py postgresql+asyncpg://postgres:pass@host:port/railway")
+    sys.exit(1)
+
+# Override before any app imports so pydantic-settings picks it up
+os.environ["DATABASE_URL"] = sys.argv[1]
+
 from sqlalchemy import text
-from core.database import async_session_factory
+from core.database import async_session_factory, engine
+
+print(f"Connecting to: {engine.url}")
 
 # Tables in dependency order (parents before children)
 TABLE_ORDER = [
