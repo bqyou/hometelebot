@@ -30,6 +30,8 @@ else:
         echo=False,
         pool_size=5,
         max_overflow=10,
+        pool_pre_ping=True,   # test connections before use; drops stale ones silently
+        pool_recycle=1800,    # recycle connections after 30 min (well under MySQL wait_timeout)
     )
 
 # --- Session Factory ---

@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 BIKE_PURCHASE_DATE = date(2026, 1, 24)
-BIKE_COST = 360
+BIKE_COST = 660
 CAB_COST = 17
 
 SG_PUBLIC_HOLIDAYS = {

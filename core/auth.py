@@ -18,6 +18,7 @@ from typing import Callable, Any
 
 import bcrypt
 from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 from telegram import Update
 from telegram.ext import (
     ContextTypes,
@@ -83,21 +84,25 @@ async def get_active_session(chat_id: str) -> tuple[Session, User] | None:
     
     Returns (Session, User) tuple if authenticated, None otherwise.
     """
-    async with async_session_factory() as db:
-        result = await db.execute(
-            select(Session, User)
-            .join(User, Session.user_id == User.id)
-            .where(
-                Session.telegram_chat_id == chat_id,
-                Session.is_active == True,
-                Session.expires_at > datetime.utcnow(),
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(Session, User)
+                .join(User, Session.user_id == User.id)
+                .where(
+                    Session.telegram_chat_id == chat_id,
+                    Session.is_active == True,
+                    Session.expires_at > datetime.utcnow(),
+                )
+                .order_by(Session.created_at.desc())
+                .limit(1)
             )
-            .order_by(Session.created_at.desc())
-            .limit(1)
-        )
-        row = result.first()
-        if row:
-            return row[0], row[1]
+            row = result.first()
+            if row:
+                return row[0], row[1]
+            return None
+    except OperationalError:
+        logger.warning("DB connection lost in get_active_session(); treating as unauthenticated.")
         return None
 
 

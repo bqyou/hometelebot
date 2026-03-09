@@ -20,6 +20,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
+# Migration exports (contain user data)
+export.json
+
 #claude
 .claude/
 CLAUDE.md
