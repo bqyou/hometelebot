@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # --- Auth ---
-    session_duration_hours: int = Field(default=24)
+    session_duration_hours: int = Field(default=0, description="Session lifetime in hours. 0 = never expire.")
     max_login_attempts: int = Field(default=5)
     lockout_duration_minutes: int = Field(default=15)
 

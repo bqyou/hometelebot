@@ -68,10 +68,14 @@ async def create_session(user_id: int, chat_id: str) -> Session:
         )
 
         # Create new session
+        if settings.session_duration_hours == 0:
+            expires = datetime(9999, 12, 31, 23, 59, 59)
+        else:
+            expires = datetime.utcnow() + timedelta(hours=settings.session_duration_hours)
         new_session = Session(
             user_id=user_id,
             telegram_chat_id=chat_id,
-            expires_at=datetime.utcnow() + timedelta(hours=settings.session_duration_hours),
+            expires_at=expires,
             is_active=True,
         )
         db.add(new_session)
@@ -255,10 +259,11 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await create_session(user.id, chat_id)
 
     display = user.display_name or user.username
+    session_note = "Session never expires" if settings.session_duration_hours == 0 else f"Session valid for {settings.session_duration_hours}h"
     await update.effective_chat.send_message(
         f"\U0001f44b <b>Welcome back, {display}!</b>\n"
         f"\n"
-        f"Session valid for {settings.session_duration_hours}h \u00b7 /help for commands",
+        f"{session_note} \u00b7 /help for commands",
         parse_mode="HTML",
     )
     return ConversationHandler.END
