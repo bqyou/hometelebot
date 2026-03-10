@@ -28,7 +28,7 @@ from telegram.ext import (
     filters,
 )
 
-from core.auth import require_auth
+from core.auth import require_auth, require_app_access
 from core.database import async_session_factory
 from apps.grocery.models import GroceryList, GroceryListMember, GroceryItem
 
@@ -77,7 +77,7 @@ async def _get_or_create_default_list(user_id: int) -> int:
 # Main Grocery View
 # ============================================================
 
-@require_auth
+@require_app_access("grocery")
 async def grocery_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /grocery -- show the list, or /grocery add item1, item2."""
     user = context.user_data["current_user"]

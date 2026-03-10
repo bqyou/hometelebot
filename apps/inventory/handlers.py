@@ -27,7 +27,7 @@ from telegram.ext import (
     filters,
 )
 
-from core.auth import require_auth
+from core.auth import require_auth, require_app_access
 from core.database import async_session_factory
 from apps.inventory.models import InventoryItem
 
@@ -55,7 +55,7 @@ CATEGORY_OPTIONS = ["Kids", "General", "Other"]
 # Main Inventory View
 # ============================================================
 
-@require_auth
+@require_app_access("inventory")
 async def inventory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /inv -- display all inventory items grouped by category."""
     user = context.user_data["current_user"]
@@ -485,7 +485,7 @@ async def add_category_callback(update: Update, context: ContextTypes.DEFAULT_TY
 # Quick Add via Command
 # ============================================================
 
-@require_auth
+@require_app_access("inventory")
 async def quick_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /inv_add NAME QTY [UNIT] [CATEGORY] — quick-add without the conversation flow.
 

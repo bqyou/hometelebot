@@ -19,6 +19,10 @@ class BikeApp(BaseMiniApp):
         return "bike"
 
     @property
+    def app_type(self) -> str:
+        return "personal"
+
+    @property
     def description(self) -> str:
         return "School bike ride tracker & savings calculator"
 

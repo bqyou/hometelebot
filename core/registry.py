@@ -68,9 +68,20 @@ class BaseMiniApp(ABC):
         """Register all Telegram handlers (CommandHandler, CallbackQueryHandler, etc.)."""
         ...
 
+    @property
+    def app_type(self) -> str:
+        """App availability type.
+
+        'common'   — user-selectable; shown during registration and /apps.
+        'personal' — admin-assigned only (e.g. bike, food_menu); not self-serviceable.
+
+        Override in personal apps to return 'personal'.
+        """
+        return "common"
+
     def get_models(self) -> list[Any]:
         """Return SQLAlchemy model classes for database table creation.
-        
+
         Override this if your app needs database tables.
         Example: return [InventoryItem]
         """
@@ -188,30 +199,51 @@ class MiniAppRegistry:
                 logger.error(f"Startup failed for '{name}': {exc}")
 
     # Emoji hint per app name — extend as new apps are added
-    _APP_ICONS: dict[str, str] = {
+    APP_ICONS: dict[str, str] = {
         "inventory": "\U0001f4e6",   # 📦
-        "food_menu": "\U0001f371",   # 🍱
+        "tingkat":   "\U0001f371",   # 🍱
         "grocery":   "\U0001f6d2",   # 🛒
+        "bike":      "\U0001f6b2",   # 🚲
     }
 
-    def get_help_text(self) -> str:
-        """Generate the /help text dynamically from all registered apps."""
+    def get_common_apps(self) -> dict[str, "BaseMiniApp"]:
+        """Return only apps with app_type == 'common'."""
+        return {name: app for name, app in self._apps.items() if app.app_type == "common"}
+
+    def get_help_text(self, enabled_apps: set[str] | None = None) -> str:
+        """Generate the /help text.
+
+        Args:
+            enabled_apps: When provided (logged-in user), only show apps in this
+                          set and display logged-in system commands.
+                          When None (unauthenticated), show only login system commands.
+        """
         lines = ["\U0001f4cb <b>Commands</b>", ""]
 
-        for name, app in sorted(self._apps.items()):
-            icon = self._APP_ICONS.get(name, "\u25ab")  # ▫ fallback
-            lines.append(f"\u250c {icon} <b>{app.description}</b>")
-            for cmd in app.commands:
-                lines.append(f"\u2502  /{cmd['command']} \u00b7 {cmd['description']}")
-            lines.append("\u2514")
-            lines.append("")
+        if enabled_apps is not None:
+            # Logged-in: show only the user's enabled apps
+            for name, app in sorted(self._apps.items()):
+                if name not in enabled_apps:
+                    continue
+                icon = self.APP_ICONS.get(name, "\u25ab")
+                lines.append(f"\u250c {icon} <b>{app.description}</b>")
+                for cmd in app.commands:
+                    lines.append(f"\u2502  /{cmd['command']} \u00b7 {cmd['description']}")
+                lines.append("\u2514")
+                lines.append("")
 
-        lines.append(f"\u250c \u2699\ufe0f <b>System</b>")
-        lines.append(f"\u2502  /login \u00b7 Sign in with your PIN")
-        lines.append(f"\u2502  /logout \u00b7 End your session")
-        lines.append(f"\u2502  /help \u00b7 Show this message")
-        lines.append(f"\u2502  /cancel \u00b7 Cancel current operation")
-        lines.append("\u2514")
+            lines.append(f"\u250c \u2699\ufe0f <b>System</b>")
+            lines.append(f"\u2502  /apps   \u00b7 Manage your apps")
+            lines.append(f"\u2502  /logout \u00b7 End your session")
+            lines.append(f"\u2502  /help   \u00b7 Show this message")
+            lines.append("\u2514")
+        else:
+            # Unauthenticated: no app commands, only login prompts
+            lines.append(f"\u250c \u2699\ufe0f <b>System</b>")
+            lines.append(f"\u2502  /register \u00b7 Create a new account")
+            lines.append(f"\u2502  /login    \u00b7 Sign in with your PIN")
+            lines.append(f"\u2502  /help     \u00b7 Show this message")
+            lines.append("\u2514")
 
         return "\n".join(lines)
 
@@ -225,8 +257,10 @@ class MiniAppRegistry:
             all_commands.extend(app.commands)
         # Add system commands
         all_commands.extend([
-            {"command": "login", "description": "Log in with username and PIN"},
-            {"command": "logout", "description": "End your session"},
-            {"command": "help", "description": "Show all available commands"},
+            {"command": "register", "description": "Create a new account"},
+            {"command": "login",    "description": "Log in with username and PIN"},
+            {"command": "logout",   "description": "End your session"},
+            {"command": "apps",     "description": "Manage your apps"},
+            {"command": "help",     "description": "Show all available commands"},
         ])
         return all_commands

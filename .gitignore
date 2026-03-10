@@ -25,6 +25,7 @@ export.json
 scripts/export_data.py
 scripts/import_data.py
 scripts/fix_sequences.py
+scripts/grant_app.py
 
 #claude
 .claude/

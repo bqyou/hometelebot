@@ -13,13 +13,14 @@ from sqlalchemy import (
     String,
     Text,
     ForeignKey,
+    UniqueConstraint,
 )
 
 from core.database import Base
 
 
 class User(Base):
-    """A registered bot user. Created via the /adduser admin command or CLI script."""
+    """A registered bot user. Created via /register on Telegram or the CLI script."""
 
     __tablename__ = "users"
 
@@ -56,8 +57,7 @@ class Session(Base):
 
 
 class UserAppSetting(Base):
-    """Per-user settings for each mini app. Tracks which apps are enabled
-    and stores app-specific preferences as JSON."""
+    """Per-user app access. One row per (user, app) pair."""
 
     __tablename__ = "user_app_settings"
 
@@ -67,7 +67,6 @@ class UserAppSetting(Base):
     is_enabled = Column(Boolean, default=True)
     settings_json = Column(Text, default="{}")
 
-    # Composite unique constraint: one row per user per app
     __table_args__ = (
-        {"sqlite_autoincrement": True},
+        UniqueConstraint("user_id", "app_name", name="uq_user_app"),
     )

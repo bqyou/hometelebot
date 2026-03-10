@@ -8,7 +8,6 @@ from apps.food_menu.models import MenuWeek, MenuItem
 from apps.food_menu.handlers import (
     menu_command,
     menu_callback,
-    menu_refresh_command,
 )
 
 
@@ -17,7 +16,11 @@ class FoodMenuApp(BaseMiniApp):
 
     @property
     def name(self) -> str:
-        return "food_menu"
+        return "tingkat"
+
+    @property
+    def app_type(self) -> str:
+        return "personal"
 
     @property
     def description(self) -> str:
@@ -27,12 +30,10 @@ class FoodMenuApp(BaseMiniApp):
     def commands(self) -> list[dict[str, str]]:
         return [
             {"command": "menu", "description": "View this week's tingkat menu"},
-            {"command": "menu_refresh", "description": "Force refresh menu from website"},
         ]
 
     def register_handlers(self, app: Application) -> None:
         app.add_handler(CommandHandler("menu", menu_command))
-        app.add_handler(CommandHandler("menu_refresh", menu_refresh_command))
         app.add_handler(
             CallbackQueryHandler(menu_callback, pattern=r"^menu:")
         )
@@ -51,14 +52,47 @@ class FoodMenuApp(BaseMiniApp):
         ]
 
     async def _scheduled_scrape(self, context) -> None:
-        """Scheduled job: scrape the menu website and update the database."""
-        from apps.food_menu.scraper import scrape_menu
+        """Scheduled job: scrape the menu website and update the database.
+
+        Skips the HTTP scrape entirely if both this week and next week already
+        have menu items in the database.
+        """
         from apps.food_menu.models import MenuWeek, MenuItem
         from core.database import async_session_factory
         from sqlalchemy import select, func
+        from datetime import date, timedelta
         import logging
 
         logger = logging.getLogger(__name__)
+
+        # --- Pre-check: skip if this week and next week are already populated ---
+        today     = date.today()
+        next_week = today + timedelta(days=7)
+
+        async def _has_items_for(target: date) -> bool:
+            async with async_session_factory() as db:
+                week_result = await db.execute(
+                    select(MenuWeek).where(
+                        MenuWeek.week_start <= target,
+                        MenuWeek.week_end   >= target,
+                    )
+                )
+                week = week_result.scalar_one_or_none()
+                if week is None:
+                    return False
+                count_result = await db.execute(
+                    select(func.count()).where(MenuItem.menu_week_id == week.id)
+                )
+                return (count_result.scalar() or 0) > 0
+
+        this_week_ok = await _has_items_for(today)
+        next_week_ok = await _has_items_for(next_week)
+
+        if this_week_ok and next_week_ok:
+            logger.info("Menu scrape skipped — this week and next week already have data")
+            return
+
+        from apps.food_menu.scraper import scrape_menu
         logger.info("Running scheduled menu scrape...")
 
         try:

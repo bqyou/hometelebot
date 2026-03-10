@@ -22,7 +22,7 @@ from telegram.ext import (
     filters,
 )
 
-from core.auth import require_auth
+from core.auth import require_auth, require_app_access
 from core.database import async_session_factory
 from core.ui import e as _e, BOX_TOP, BOX_MID, BOX_BOT, DOT
 from apps.bike.models import BikeDay
@@ -863,7 +863,7 @@ async def _show_log(
 # Command Handler
 # ============================================================
 
-@require_auth
+@require_app_access("bike")
 async def bike_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /bike — show the main menu."""
     await _show_main_menu(update, context)

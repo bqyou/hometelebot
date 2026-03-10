@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from core.auth import require_auth
+from core.auth import require_auth, require_app_access
 from core.database import async_session_factory
 from apps.food_menu.models import MenuWeek, MenuItem
 
@@ -253,7 +253,7 @@ def _specific_day_keyboard(meal_filter: str, is_next: bool) -> InlineKeyboardMar
 # /menu command
 # ============================================================
 
-@require_auth
+@require_app_access("tingkat")
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /menu — show today's menu."""
     week, items = await _get_best_week(date.today())
@@ -333,7 +333,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # /menu_refresh command
 # ============================================================
 
-@require_auth
+@require_app_access("tingkat")
 async def menu_refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /menu_refresh — force a re-scrape of the Tingkat website."""
     from apps.food_menu.scraper import scrape_menu

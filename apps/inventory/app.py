@@ -7,7 +7,6 @@ from apps.inventory.models import InventoryItem
 from apps.inventory.handlers import (
     inventory_command,
     inventory_callback,
-    quick_add_command,
     get_add_conversation_handler,
 )
 
@@ -26,16 +25,11 @@ class InventoryApp(BaseMiniApp):
     @property
     def commands(self) -> list[dict[str, str]]:
         return [
-            {"command": "inv", "description": "View your inventory"},
-            {"command": "inv_add", "description": "Quick-add an item (e.g., /inv_add Rice 5 kg)"},
+            {"command": "inv", "description": "Open inventory manager"},
         ]
 
     def register_handlers(self, app: Application) -> None:
-        # Main inventory view
         app.add_handler(CommandHandler("inv", inventory_command))
-
-        # Quick add via command
-        app.add_handler(CommandHandler("inv_add", quick_add_command))
 
         # Add-item conversation (triggered by inline button)
         app.add_handler(get_add_conversation_handler())

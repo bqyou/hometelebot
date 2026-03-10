@@ -126,14 +126,8 @@ async def invalidate_session(chat_id: str) -> None:
 # ============================================================
 
 def require_auth(handler_func: Callable) -> Callable:
-    """Decorator that checks for an active session before running a command handler.
-    
-    Usage:
-        @require_auth
-        async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            user = context.user_data["current_user"]
-            ...
-    
+    """Decorator that checks for an active session before running a handler.
+
     The authenticated User object is stored in context.user_data["current_user"].
     """
     @wraps(handler_func)
@@ -154,6 +148,49 @@ def require_auth(handler_func: Callable) -> Callable:
         return await handler_func(update, context)
 
     return wrapper
+
+
+def require_app_access(app_name: str) -> Callable:
+    """Decorator factory that checks auth + app access for a command handler.
+
+    Replaces @require_auth on command entry points. Users without access to
+    the named app see a friendly error pointing them to /apps.
+
+    Usage:
+        @require_app_access("inventory")
+        async def inventory_command(update, context):
+            user = context.user_data["current_user"]
+            ...
+    """
+    def decorator(handler_func: Callable) -> Callable:
+        @wraps(handler_func)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Any:
+            chat_id = str(update.effective_chat.id)
+            session_data = await get_active_session(chat_id)
+
+            if session_data is None:
+                await update.message.reply_text(
+                    "\U0001f512 Not logged in \u00b7 use /login to authenticate",
+                    parse_mode="HTML",
+                )
+                return
+
+            session_obj, user_obj = session_data
+            context.user_data["current_user"] = user_obj
+            context.user_data["current_session"] = session_obj
+
+            from core.user_apps import user_has_app
+            if not await user_has_app(user_obj.id, app_name):
+                await update.message.reply_text(
+                    "\u26d4 You don\u2019t have access to this app \u00b7 use /apps to manage your apps",
+                    parse_mode="HTML",
+                )
+                return
+
+            return await handler_func(update, context)
+
+        return wrapper
+    return decorator
 
 
 # ============================================================
@@ -258,6 +295,13 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Create session
     await create_session(user.id, chat_id)
 
+    # Auto-assign common apps to legacy users who have no app settings yet
+    from core.user_apps import ensure_user_has_apps, update_user_command_menu
+    await ensure_user_has_apps(user.id)
+
+    # Update Telegram command menu to show only this user's enabled apps
+    await update_user_command_menu(context.bot, chat_id, user.id)
+
     display = user.display_name or user.username
     session_note = "Session never expires" if settings.session_duration_hours == 0 else f"Session valid for {settings.session_duration_hours}h"
     await update.effective_chat.send_message(
@@ -279,6 +323,11 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle /logout -- invalidate the current session."""
     chat_id = str(update.effective_chat.id)
     await invalidate_session(chat_id)
+
+    # Restore the global (unauthenticated) command menu
+    from core.user_apps import reset_user_command_menu
+    await reset_user_command_menu(context.bot, chat_id)
+
     await update.message.reply_text("\U0001f44b Signed out \u00b7 /login to sign in again")
 
 
