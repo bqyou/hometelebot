@@ -1,6 +1,6 @@
 """Database models for the Bike Ride Tracker mini app."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -34,8 +34,8 @@ class BikeDay(Base):
     evening_reason = Column(String(20), nullable=True)
     evening_custom = Column(String(200), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_bike_user_date"),

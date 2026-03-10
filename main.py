@@ -50,6 +50,15 @@ registry = MiniAppRegistry()
 # System Command Handlers
 # ============================================================
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log errors. Transient network errors are expected with long polling and logged quietly."""
+    from telegram.error import NetworkError, TimedOut
+    if isinstance(context.error, (NetworkError, TimedOut)):
+        logger.debug(f"Transient network error (auto-retry): {context.error}")
+    else:
+        logger.error(f"Unhandled exception: {context.error}", exc_info=context.error)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start -- welcome message."""
     await update.message.reply_text(
@@ -112,7 +121,7 @@ async def _sync_active_session_menus(bot) -> None:
     Without this, users logged in before a bot restart would still see the
     global (unauthenticated) menu until they log out and back in.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
     from sqlalchemy import select
     from core.models import Session, User
     from core.user_apps import update_user_command_menu
@@ -123,7 +132,7 @@ async def _sync_active_session_menus(bot) -> None:
                 select(Session.telegram_chat_id, Session.user_id)
                 .where(
                     Session.is_active == True,
-                    Session.expires_at > datetime.utcnow(),
+                    Session.expires_at > datetime.now(timezone.utc),
                 )
                 .distinct()
             )
@@ -185,6 +194,9 @@ def main() -> None:
     app.add_handler(get_registration_handler())
     app.add_handler(get_apps_command_handler())
     app.add_handler(get_apps_callback_handler())
+
+    # --- Register error handler ---
+    app.add_error_handler(error_handler)
 
     # --- Register all mini app handlers ---
     registry.register_all(app)

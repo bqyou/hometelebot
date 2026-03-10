@@ -1,6 +1,6 @@
 """Database models for the Food Menu (Tingkat) mini app."""
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -26,7 +26,7 @@ class MenuWeek(Base):
     week_start = Column(Date, nullable=False)
     week_end = Column(Date, nullable=False)
     raw_html = Column(Text, nullable=True)
-    scraped_at = Column(DateTime, default=datetime.utcnow)
+    scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         UniqueConstraint("week_start", "week_end", name="uq_menu_week_range"),

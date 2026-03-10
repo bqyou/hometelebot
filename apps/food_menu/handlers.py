@@ -269,8 +269,8 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     day_name = _get_today_day_name()
 
     await update.message.reply_text(
-        text=_format_day_text(day_name, items, "all", date_range, week.week_start),
-        reply_markup=_day_keyboard("all"),
+        text=_format_week_text(items, "dinner", date_range, is_next=False, week_start=week.week_start, week_end=week.week_end),
+        reply_markup=_week_keyboard("dinner", is_next=False),
         parse_mode="HTML",
     )
 

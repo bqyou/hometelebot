@@ -11,7 +11,7 @@ Interaction model:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select, delete, update
 from telegram import (
@@ -285,7 +285,7 @@ async def _toggle_item(
             item.is_bought = not item.is_bought
             if item.is_bought:
                 item.bought_by_user_id = user_id
-                item.bought_at = datetime.utcnow()
+                item.bought_at = datetime.now(timezone.utc)
             else:
                 item.bought_by_user_id = None
                 item.bought_at = None
