@@ -290,7 +290,6 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user.failed_login_attempts = 0
         user.locked_until = None
         user.last_login = datetime.now(timezone.utc).replace(tzinfo=None)
-        user.telegram_chat_id = chat_id
         await db.commit()
 
     # Create session
