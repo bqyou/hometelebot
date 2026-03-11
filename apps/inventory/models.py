@@ -25,8 +25,8 @@ class InventoryItem(Base):
     unit = Column(String(20), default="pcs")
     low_stock_threshold = Column(Integer, default=5)
     category = Column(String(50), default="General")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<InventoryItem(name='{self.name}', qty={self.quantity})>"

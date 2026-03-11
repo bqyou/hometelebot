@@ -33,7 +33,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     failed_login_attempts = Column(Integer, default=0)
     locked_until = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     last_login = Column(DateTime, nullable=True)
 
     def __repr__(self) -> str:
@@ -50,7 +50,7 @@ class Session(Base):
     telegram_chat_id = Column(String(50), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     def __repr__(self) -> str:
         return f"<Session(user_id={self.user_id}, active={self.is_active})>"

@@ -27,7 +27,7 @@ class GroceryList(Base):
     name = Column(String(100), nullable=False, default="Shopping List")
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     def __repr__(self) -> str:
         return f"<GroceryList(name='{self.name}', owner={self.owner_id})>"
@@ -59,7 +59,7 @@ class GroceryItem(Base):
     is_bought = Column(Boolean, default=False)
     added_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     bought_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     bought_at = Column(DateTime, nullable=True)
 
     def __repr__(self) -> str:
