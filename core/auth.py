@@ -12,7 +12,7 @@ Also provides the require_auth decorator for protecting commands.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Callable, Any
 
@@ -29,7 +29,7 @@ from telegram.ext import (
 )
 
 from config import settings
-from core.database import async_session_factory
+from core.database import async_session_factory, utc_now
 from core.models import User, Session
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ async def create_session(user_id: int, chat_id: str) -> Session:
         if settings.session_duration_hours == 0:
             expires = datetime(9999, 12, 31, 23, 59, 59)
         else:
-            expires = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=settings.session_duration_hours)
+            expires = utc_now() + timedelta(hours=settings.session_duration_hours)
         new_session = Session(
             user_id=user_id,
             telegram_chat_id=chat_id,
@@ -96,7 +96,7 @@ async def get_active_session(chat_id: str) -> tuple[Session, User] | None:
                 .where(
                     Session.telegram_chat_id == chat_id,
                     Session.is_active == True,
-                    Session.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
+                    Session.expires_at > utc_now(),
                 )
                 .order_by(Session.created_at.desc())
                 .limit(1)
@@ -257,7 +257,7 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return ConversationHandler.END
 
         # Check lockout
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = utc_now()
         if user.locked_until and user.locked_until > now:
             remaining = (user.locked_until - now).seconds // 60
             await update.effective_chat.send_message(
@@ -270,7 +270,7 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             user.failed_login_attempts += 1
 
             if user.failed_login_attempts >= settings.max_login_attempts:
-                user.locked_until = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+                user.locked_until = now + timedelta(
                     minutes=settings.lockout_duration_minutes
                 )
                 await db.commit()
@@ -289,7 +289,7 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Successful login
         user.failed_login_attempts = 0
         user.locked_until = None
-        user.last_login = datetime.now(timezone.utc).replace(tzinfo=None)
+        user.last_login = now
         await db.commit()
 
     # Create session

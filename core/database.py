@@ -5,12 +5,19 @@ Supports both SQLite (dev) and PostgreSQL (prod) transparently.
 Switch by changing DATABASE_URL in .env -- no code changes needed.
 """
 
+from datetime import datetime, timezone
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+
+
+def utc_now() -> datetime:
+    """Current UTC time as a naive datetime, for use with TIMESTAMP WITHOUT TIME ZONE columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 from config import settings
 

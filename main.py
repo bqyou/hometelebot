@@ -121,8 +121,8 @@ async def _sync_active_session_menus(bot) -> None:
     Without this, users logged in before a bot restart would still see the
     global (unauthenticated) menu until they log out and back in.
     """
-    from datetime import datetime, timezone
     from sqlalchemy import select
+    from core.database import utc_now
     from core.models import Session, User
     from core.user_apps import update_user_command_menu
 
@@ -132,7 +132,7 @@ async def _sync_active_session_menus(bot) -> None:
                 select(Session.telegram_chat_id, Session.user_id)
                 .where(
                     Session.is_active == True,
-                    Session.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
+                    Session.expires_at > utc_now(),
                 )
                 .distinct()
             )

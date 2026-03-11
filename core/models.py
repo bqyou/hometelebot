@@ -3,8 +3,6 @@ Shared database models used by the core system.
 Mini apps define their own models in their respective modules.
 """
 
-from datetime import datetime, timezone
-
 from sqlalchemy import (
     Boolean,
     Column,
@@ -16,7 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 
-from core.database import Base
+from core.database import Base, utc_now
 
 
 class User(Base):
@@ -33,7 +31,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     failed_login_attempts = Column(Integer, default=0)
     locked_until = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    created_at = Column(DateTime, default=utc_now)
     last_login = Column(DateTime, nullable=True)
 
     def __repr__(self) -> str:
@@ -50,7 +48,7 @@ class Session(Base):
     telegram_chat_id = Column(String(50), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    created_at = Column(DateTime, default=utc_now)
 
     def __repr__(self) -> str:
         return f"<Session(user_id={self.user_id}, active={self.is_active})>"

@@ -11,7 +11,6 @@ Interaction model:
 """
 
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import select, delete, update
 from telegram import (
@@ -29,7 +28,7 @@ from telegram.ext import (
 )
 
 from core.auth import require_auth, require_app_access
-from core.database import async_session_factory
+from core.database import async_session_factory, utc_now
 from apps.grocery.models import GroceryList, GroceryListMember, GroceryItem
 
 logger = logging.getLogger(__name__)
@@ -285,7 +284,7 @@ async def _toggle_item(
             item.is_bought = not item.is_bought
             if item.is_bought:
                 item.bought_by_user_id = user_id
-                item.bought_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                item.bought_at = utc_now()
             else:
                 item.bought_by_user_id = None
                 item.bought_at = None
