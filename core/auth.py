@@ -71,7 +71,7 @@ async def create_session(user_id: int, chat_id: str) -> Session:
         if settings.session_duration_hours == 0:
             expires = datetime(9999, 12, 31, 23, 59, 59)
         else:
-            expires = datetime.now(timezone.utc) + timedelta(hours=settings.session_duration_hours)
+            expires = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=settings.session_duration_hours)
         new_session = Session(
             user_id=user_id,
             telegram_chat_id=chat_id,
@@ -96,7 +96,7 @@ async def get_active_session(chat_id: str) -> tuple[Session, User] | None:
                 .where(
                     Session.telegram_chat_id == chat_id,
                     Session.is_active == True,
-                    Session.expires_at > datetime.now(timezone.utc),
+                    Session.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
                 )
                 .order_by(Session.created_at.desc())
                 .limit(1)
@@ -257,8 +257,9 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return ConversationHandler.END
 
         # Check lockout
-        if user.locked_until and user.locked_until > datetime.now(timezone.utc):
-            remaining = (user.locked_until - datetime.now(timezone.utc)).seconds // 60
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if user.locked_until and user.locked_until > now:
+            remaining = (user.locked_until - now).seconds // 60
             await update.effective_chat.send_message(
                 f"\u23f3 Account locked \u00b7 try again in {remaining + 1} min"
             )
@@ -269,7 +270,7 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             user.failed_login_attempts += 1
 
             if user.failed_login_attempts >= settings.max_login_attempts:
-                user.locked_until = datetime.now(timezone.utc) + timedelta(
+                user.locked_until = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
                     minutes=settings.lockout_duration_minutes
                 )
                 await db.commit()
@@ -288,7 +289,7 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Successful login
         user.failed_login_attempts = 0
         user.locked_until = None
-        user.last_login = datetime.now(timezone.utc)
+        user.last_login = datetime.now(timezone.utc).replace(tzinfo=None)
         user.telegram_chat_id = chat_id
         await db.commit()
 

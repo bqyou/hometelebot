@@ -132,7 +132,7 @@ async def _sync_active_session_menus(bot) -> None:
                 select(Session.telegram_chat_id, Session.user_id)
                 .where(
                     Session.is_active == True,
-                    Session.expires_at > datetime.now(timezone.utc),
+                    Session.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
                 )
                 .distinct()
             )

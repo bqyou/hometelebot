@@ -285,7 +285,7 @@ async def _toggle_item(
             item.is_bought = not item.is_bought
             if item.is_bought:
                 item.bought_by_user_id = user_id
-                item.bought_at = datetime.now(timezone.utc)
+                item.bought_at = datetime.now(timezone.utc).replace(tzinfo=None)
             else:
                 item.bought_by_user_id = None
                 item.bought_at = None
