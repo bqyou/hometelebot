@@ -112,9 +112,6 @@ async def post_init(app: Application) -> None:
     # This handles users who were already logged in before a restart.
     await _sync_active_session_menus(app.bot)
 
-    from core.whats_new import broadcast_to_active_sessions
-    await broadcast_to_active_sessions(app.bot)
-
     await registry.startup_all()
 
 

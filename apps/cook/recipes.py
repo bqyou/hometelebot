@@ -936,6 +936,48 @@ async def import_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def generate_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+    user = context.user_data["current_user"]
+
+    # Check minimum inventory before allowing recipe generation
+    async with async_session_factory() as db:
+        raw_count = (await db.execute(
+            select(func.count()).select_from(CookRawMaterial).where(CookRawMaterial.user_id == user.id)
+        )).scalar()
+        sauce_count = (await db.execute(
+            select(func.count()).select_from(CookSauce).where(CookSauce.user_id == user.id)
+        )).scalar()
+        equip_count = (await db.execute(
+            select(func.count()).select_from(CookEquipment).where(CookEquipment.user_id == user.id)
+        )).scalar()
+
+    missing = []
+    if raw_count < 2:
+        missing.append(f"\U0001f96c Raw Materials \u2014 {raw_count}/2 added")
+    if sauce_count < 2:
+        missing.append(f"\U0001F9C2 Sauces \u2014 {sauce_count}/2 added")
+    if equip_count < 2:
+        missing.append(f"\U0001f373 Equipment \u2014 {equip_count}/2 added")
+
+    if missing:
+        lines = [
+            "\U0001f916 <b>Generate Recipe</b>",
+            "",
+            "To generate a recipe tailored to your kitchen, add at least:",
+            "",
+        ]
+        lines.extend(f"\u2022 {m}" for m in missing)
+        lines += [
+            "",
+            "Head back and fill in your kitchen first \u2014 the AI uses your actual inventory to suggest recipes you can cook right now.",
+        ]
+        await query.edit_message_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2190 Back", callback_data="cook:menu")]
+            ]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
 
     buttons = []
     row = []

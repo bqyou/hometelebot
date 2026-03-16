@@ -302,9 +302,6 @@ async def login_pin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Update Telegram command menu to show only this user's enabled apps
     await update_user_command_menu(context.bot, chat_id, user.id)
 
-    from core.whats_new import notify_if_unseen
-    await notify_if_unseen(context.bot, chat_id, user.id)
-
     display = user.display_name or user.username
     session_note = "Session never expires" if settings.session_duration_hours == 0 else f"Session valid for {settings.session_duration_hours}h"
     await update.effective_chat.send_message(
