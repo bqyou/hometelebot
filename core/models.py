@@ -54,6 +54,21 @@ class Session(Base):
         return f"<Session(user_id={self.user_id}, active={self.is_active})>"
 
 
+class WhatsNewSeen(Base):
+    """Tracks which what's new version each user has been notified about."""
+
+    __tablename__ = "whats_new_seen"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    version = Column(String(50), nullable=False)
+    seen_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "version", name="uq_whats_new_seen"),
+    )
+
+
 class UserAppSetting(Base):
     """Per-user app access. One row per (user, app) pair."""
 

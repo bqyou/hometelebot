@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     webhook_url: str = Field(default="")
     webhook_port: int = Field(default=8443)
 
+    # --- DeepSeek (Cook app AI) ---
+    deepseek_api_key: str = Field(default="", description="DeepSeek API key for Cook app AI features")
+
     # --- Logging ---
     log_level: str = Field(default="INFO")
 

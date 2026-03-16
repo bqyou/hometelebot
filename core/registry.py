@@ -204,6 +204,7 @@ class MiniAppRegistry:
         "tingkat":   "\U0001f371",   # 🍱
         "grocery":   "\U0001f6d2",   # 🛒
         "bike":      "\U0001f6b2",   # 🚲
+        "cook":      "\U0001f373",   # 🍳
     }
 
     def get_common_apps(self) -> dict[str, "BaseMiniApp"]:
