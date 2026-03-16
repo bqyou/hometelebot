@@ -188,7 +188,10 @@ async def _show_item_picker(update: Update, user_id: int, action: str) -> None:
         items = result.scalars().all()
 
     if not items:
-        await update.callback_query.edit_message_text("No items to select from.")
+        await update.callback_query.edit_message_text(
+            "No items to select from.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="inv:refresh")]]),
+        )
         return
 
     # Build a grid of item buttons (2 per row)
@@ -219,7 +222,10 @@ async def _show_delete_confirm(update: Update, item_id: int) -> None:
         item = result.scalar_one_or_none()
 
     if not item:
-        await update.callback_query.edit_message_text("Item not found.")
+        await update.callback_query.edit_message_text(
+            "Item not found.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="inv:del_select")]]),
+        )
         return
 
     keyboard = InlineKeyboardMarkup([
@@ -245,7 +251,10 @@ async def _show_edit_options(update: Update, item_id: int) -> None:
         item = result.scalar_one_or_none()
 
     if not item:
-        await update.callback_query.edit_message_text("Item not found.")
+        await update.callback_query.edit_message_text(
+            "Item not found.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="inv:edit_select")]]),
+        )
         return
 
     threshold_text = str(item.low_stock_threshold) if item.low_stock_threshold else "None"
@@ -327,11 +336,42 @@ async def _delete_item(
 # ============================================================
 
 @require_auth
+async def add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the add-item conversation and return to inventory."""
+    query = update.callback_query
+    await query.answer()
+    for key in ["inv_add_name", "inv_add_qty", "inv_add_unit", "inv_add_threshold"]:
+        context.user_data.pop(key, None)
+    await _show_inventory(update, context, context.user_data["current_user"].id, edit_message=True)
+    return ConversationHandler.END
+
+
+async def _inv_add_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Notify user when the add-item conversation times out."""
+    try:
+        if update.callback_query:
+            await update.effective_chat.send_message(
+                "\u23f1 Session timed out. Use /inv to return to inventory."
+            )
+        elif update.message:
+            await update.message.reply_text(
+                "\u23f1 Session timed out. Use /inv to return to inventory."
+            )
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+@require_auth
 async def add_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the [Add Item] button press. Start the add-item conversation."""
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("\uff0b <b>Add Item</b>\n\nType the item name:", parse_mode="HTML")
+    await query.edit_message_text(
+        "\uff0b <b>Add Item</b>\n\nType the item name:",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2716 Cancel", callback_data="inv:add:cancel")]]),
+        parse_mode="HTML",
+    )
     return ADD_NAME
 
 
@@ -577,31 +617,42 @@ async def quick_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 def get_add_conversation_handler() -> ConversationHandler:
     """Build the ConversationHandler for the add-item flow."""
+    cancel = CallbackQueryHandler(add_cancel, pattern=r"^inv:add:cancel$")
     return ConversationHandler(
         entry_points=[
             CallbackQueryHandler(add_start_callback, pattern="^inv:add$"),
         ],
         states={
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _inv_add_timeout),
+                CallbackQueryHandler(_inv_add_timeout),
+            ],
             ADD_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_name),
+                cancel,
             ],
             ADD_QTY: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_qty),
+                cancel,
             ],
             ADD_UNIT: [
                 CallbackQueryHandler(add_unit_callback, pattern="^inv:unit:"),
+                cancel,
             ],
             ADD_THRESHOLD: [
                 CallbackQueryHandler(add_threshold_callback, pattern="^inv:thresh:"),
+                cancel,
             ],
             ADD_THRESHOLD_CUSTOM: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_threshold_custom),
+                cancel,
             ],
             ADD_CATEGORY: [
                 CallbackQueryHandler(add_category_callback, pattern="^inv:cat:"),
+                cancel,
             ],
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        fallbacks=[cancel, CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
         conversation_timeout=120,
         per_message=False,
     )

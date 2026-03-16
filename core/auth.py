@@ -22,6 +22,7 @@ from sqlalchemy.exc import OperationalError
 from telegram import Update
 from telegram.ext import (
     ContextTypes,
+    CallbackQueryHandler,
     CommandHandler,
     ConversationHandler,
     MessageHandler,
@@ -136,10 +137,16 @@ def require_auth(handler_func: Callable) -> Callable:
         session_data = await get_active_session(chat_id)
 
         if session_data is None:
-            await update.message.reply_text(
-                "\U0001f512 Not logged in \u00b7 use /login to authenticate",
-                parse_mode="HTML",
-            )
+            if update.callback_query:
+                await update.callback_query.answer(
+                    "\U0001f512 Not logged in \u00b7 use /login",
+                    show_alert=True,
+                )
+            else:
+                await update.message.reply_text(
+                    "\U0001f512 Not logged in \u00b7 use /login to authenticate",
+                    parse_mode="HTML",
+                )
             return
 
         session_obj, user_obj = session_data
@@ -169,10 +176,16 @@ def require_app_access(app_name: str) -> Callable:
             session_data = await get_active_session(chat_id)
 
             if session_data is None:
-                await update.message.reply_text(
-                    "\U0001f512 Not logged in \u00b7 use /login to authenticate",
-                    parse_mode="HTML",
-                )
+                if update.callback_query:
+                    await update.callback_query.answer(
+                        "\U0001f512 Not logged in \u00b7 use /login",
+                        show_alert=True,
+                    )
+                else:
+                    await update.message.reply_text(
+                        "\U0001f512 Not logged in \u00b7 use /login to authenticate",
+                        parse_mode="HTML",
+                    )
                 return
 
             session_obj, user_obj = session_data
@@ -181,10 +194,16 @@ def require_app_access(app_name: str) -> Callable:
 
             from core.user_apps import user_has_app
             if not await user_has_app(user_obj.id, app_name):
-                await update.message.reply_text(
-                    "\u26d4 You don\u2019t have access to this app \u00b7 use /apps to manage your apps",
-                    parse_mode="HTML",
-                )
+                if update.callback_query:
+                    await update.callback_query.answer(
+                        "\u26d4 No access to this app \u00b7 use /apps",
+                        show_alert=True,
+                    )
+                else:
+                    await update.message.reply_text(
+                        "\u26d4 You don\u2019t have access to this app \u00b7 use /apps to manage your apps",
+                        parse_mode="HTML",
+                    )
                 return
 
             return await handler_func(update, context)
@@ -335,11 +354,31 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # Build the ConversationHandler
 # ============================================================
 
+async def _login_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Notify user when the login conversation times out."""
+    try:
+        if update.callback_query:
+            await update.effective_chat.send_message(
+                "\u23f1 Login timed out. Use /login to try again."
+            )
+        elif update.message:
+            await update.message.reply_text(
+                "\u23f1 Login timed out. Use /login to try again."
+            )
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
 def get_login_handler() -> ConversationHandler:
     """Returns the ConversationHandler for the /login flow."""
     return ConversationHandler(
         entry_points=[CommandHandler("login", login_start)],
         states={
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _login_timeout),
+                CallbackQueryHandler(_login_timeout),
+            ],
             USERNAME_STATE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, login_username),
             ],

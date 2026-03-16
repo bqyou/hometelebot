@@ -275,6 +275,22 @@ async def reg_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+async def _reg_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Notify user when the registration conversation times out."""
+    try:
+        if update.callback_query:
+            await update.effective_chat.send_message(
+                "\u23f1 Registration timed out. Use /register to start again."
+            )
+        elif update.message:
+            await update.message.reply_text(
+                "\u23f1 Registration timed out. Use /register to start again."
+            )
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
 # ============================================================
 # Build ConversationHandler
 # ============================================================
@@ -283,6 +299,10 @@ def get_registration_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[CommandHandler("register", reg_start)],
         states={
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _reg_timeout),
+                CallbackQueryHandler(_reg_timeout),
+            ],
             REG_USERNAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, reg_username),
             ],

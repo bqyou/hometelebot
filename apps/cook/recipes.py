@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 RECIPES_PER_PAGE = 10
 
+# Cancel button rows
+_RECIPE_CANCEL_ROW = [InlineKeyboardButton("\u2716 Cancel", callback_data="cook:bk:abort")]
+_AI_CANCEL_ROW = [InlineKeyboardButton("\u2716 Cancel", callback_data="cook:ai:cancel")]
+
 
 # ============================================================
 # Fuzzy Name Matching (no LLM needed for simple plural/stem)
@@ -97,6 +101,7 @@ def _in_equip_set(name: str, equip_set: set) -> bool:
     if norm in equip_set:
         return True
     return any(_name_matches(norm, s) for s in equip_set)
+
 
 # Manual add conversation states
 ADD_PHOTO = 0
@@ -204,26 +209,24 @@ async def _show_cookbook(update, user_id, page=0, send_new=False):
     total_pages = max(1, math.ceil(total / RECIPES_PER_PAGE))
 
     if not recipes and page == 0:
-        lines = [header("\U0001f4d6", "Cookbook"), "", "No recipes yet. Add one manually or use AI."]
+        text = header("\U0001f4d6", "Cookbook") + "\n\nNo recipes yet. Add one manually or use AI."
     else:
-        lines = [header("\U0001f4d6", f"Cookbook ({total} recipes)"), ""]
-        item_lines = []
-        for r in recipes:
-            parts = [e(r.name)]
-            if r.cuisine:
-                parts.append(e(r.cuisine))
-            parts.append(f"{r.servings} servings")
-            item_lines.append(f" {DOT} ".join(parts))
-        lines.extend(section("Recipes", item_lines))
-
-    if total_pages > 1:
-        lines.append(f"\nPage {page + 1}/{total_pages}")
+        lines = [header("\U0001f4d6", f"Cookbook ({total} recipes)")]
+        if total_pages > 1:
+            lines.append(f"Page {page + 1}/{total_pages}")
+        text = "\n".join(lines)
 
     rows = []
-    # Recipe buttons (tap to view)
-    if recipes:
-        for r in recipes:
-            rows.append([InlineKeyboardButton(f"\U0001f4d6 {r.name}", callback_data=f"cook:bk:v:{r.id}")])
+    # Recipe buttons with cuisine and servings info
+    for r in recipes:
+        label_parts = [f"\U0001f4d6 {r.name}"]
+        meta = []
+        if r.cuisine:
+            meta.append(r.cuisine)
+        meta.append(f"{r.servings} srv")
+        label_parts.append(" \u00b7 ".join(meta))
+        label = "  ".join(label_parts)
+        rows.append([InlineKeyboardButton(label, callback_data=f"cook:bk:v:{r.id}")])
 
     nav = []
     if total_pages > 1:
@@ -240,7 +243,6 @@ async def _show_cookbook(update, user_id, page=0, send_new=False):
     ])
 
     keyboard = InlineKeyboardMarkup(rows)
-    text = "\n".join(lines)
     if send_new:
         await update.effective_chat.send_message(text=text, reply_markup=keyboard, parse_mode="HTML")
     else:
@@ -251,7 +253,7 @@ async def _show_cookbook(update, user_id, page=0, send_new=False):
 # Recipe Detail with Inventory Cross-Reference
 # ============================================================
 
-async def _show_recipe_detail(update, user_id, recipe_id, servings_override=None):
+async def _show_recipe_detail(update, user_id, recipe_id, servings_override=None, origin="book"):
     async with async_session_factory() as db:
         result = await db.execute(select(CookRecipe).where(CookRecipe.id == recipe_id))
         recipe = result.scalar_one_or_none()
@@ -384,45 +386,53 @@ async def _show_recipe_detail(update, user_id, recipe_id, servings_override=None
         if step_lines:
             parts.extend(section("Steps", step_lines))
 
+    back_cb = "cook:match" if origin == "wci" else "cook:book"
     rows = [
         [
-            InlineKeyboardButton("\U0001f37d Adjust Servings", callback_data=f"cook:bk:s:{recipe_id}"),
+            InlineKeyboardButton("\U0001f37d Adjust Servings", callback_data=f"cook:bk:s:{recipe_id}:{origin}"),
             InlineKeyboardButton("\U0001f5d1 Delete", callback_data=f"cook:bk:del:{recipe_id}"),
         ],
-        [InlineKeyboardButton("\u2190 Back", callback_data="cook:book")],
     ]
+    if recipe.photo_file_id:
+        rows.append([InlineKeyboardButton("\U0001f4f8 View Photo", callback_data=f"cook:bk:ph:{recipe_id}")])
+    rows.append([InlineKeyboardButton("\u2190 Back", callback_data=back_cb)])
 
-    # Send photo if available, otherwise text
-    if recipe.photo_file_id and not servings_override:
-        try:
-            await update.callback_query.message.delete()
-        except Exception:
-            pass
-        await update.effective_chat.send_photo(
-            photo=recipe.photo_file_id,
-            caption="\n".join(parts),
-            reply_markup=InlineKeyboardMarkup(rows),
-            parse_mode="HTML",
-        )
-    else:
-        await update.callback_query.edit_message_text(
-            text="\n".join(parts),
-            reply_markup=InlineKeyboardMarkup(rows),
-            parse_mode="HTML",
-        )
+    await update.callback_query.edit_message_text(
+        text="\n".join(parts),
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode="HTML",
+    )
 
 
-async def _show_serving_picker(update, recipe_id):
+async def _send_recipe_photo(update, recipe_id):
+    """Send the recipe photo as a separate message."""
+    async with async_session_factory() as db:
+        result = await db.execute(select(CookRecipe).where(CookRecipe.id == recipe_id))
+        recipe = result.scalar_one_or_none()
+
+    if not recipe or not recipe.photo_file_id:
+        await update.callback_query.answer("No photo available.", show_alert=True)
+        return
+
+    await update.effective_chat.send_photo(
+        photo=recipe.photo_file_id,
+        caption=f"\U0001f4f8 {e(recipe.name)}",
+        parse_mode="HTML",
+    )
+    await update.callback_query.answer()
+
+
+async def _show_serving_picker(update, recipe_id, origin="book"):
     buttons = []
     row = []
     for n in [1, 2, 3, 4, 5, 6, 8, 10]:
-        row.append(InlineKeyboardButton(str(n), callback_data=f"cook:bk:sv:{recipe_id}:{n}"))
+        row.append(InlineKeyboardButton(str(n), callback_data=f"cook:bk:sv:{recipe_id}:{n}:{origin}"))
         if len(row) == 4:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton("\u2190 Back", callback_data=f"cook:bk:v:{recipe_id}")])
+    buttons.append([InlineKeyboardButton("\u2190 Back", callback_data=f"cook:bk:v:{recipe_id}:{origin}")])
 
     await update.callback_query.edit_message_text(
         "\U0001f37d <b>Adjust Servings</b>\n\nSelect number of servings:",
@@ -437,7 +447,12 @@ async def _delete_recipe_confirm(update, recipe_id):
         recipe = result.scalar_one_or_none()
 
     if not recipe:
-        await update.callback_query.edit_message_text("Recipe not found.")
+        await update.callback_query.edit_message_text(
+            "Recipe not found.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2190 Back", callback_data="cook:book")]
+            ]),
+        )
         return
 
     keyboard = InlineKeyboardMarkup([
@@ -478,7 +493,8 @@ async def _show_what_can_i_cook(update, user_id):
             await update.callback_query.edit_message_text(
                 header("\U0001f50d", "What Can I Cook?") + "\n\nNo recipes yet. Add some first!",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("\u2190 Back", callback_data="cook:menu")]
+                    [InlineKeyboardButton("+ Add Recipe", callback_data="cook:book")],
+                    [InlineKeyboardButton("\u2190 Back", callback_data="cook:menu")],
                 ]),
                 parse_mode="HTML",
             )
@@ -595,16 +611,24 @@ async def recipe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         page = int(data.split(":")[3])
         await _show_cookbook(update, user.id, page)
     elif data.startswith("cook:bk:v:"):
-        recipe_id = int(data.split(":")[3])
-        await _show_recipe_detail(update, user.id, recipe_id)
+        parts = data.split(":")
+        recipe_id = int(parts[3])
+        origin = parts[4] if len(parts) > 4 else "book"
+        await _show_recipe_detail(update, user.id, recipe_id, origin=origin)
     elif data.startswith("cook:bk:s:"):
-        recipe_id = int(data.split(":")[3])
-        await _show_serving_picker(update, recipe_id)
+        parts = data.split(":")
+        recipe_id = int(parts[3])
+        origin = parts[4] if len(parts) > 4 else "book"
+        await _show_serving_picker(update, recipe_id, origin=origin)
     elif data.startswith("cook:bk:sv:"):
         parts = data.split(":")
         recipe_id = int(parts[3])
         servings = int(parts[4])
-        await _show_recipe_detail(update, user.id, recipe_id, servings_override=servings)
+        origin = parts[5] if len(parts) > 5 else "book"
+        await _show_recipe_detail(update, user.id, recipe_id, servings_override=servings, origin=origin)
+    elif data.startswith("cook:bk:ph:"):
+        recipe_id = int(data.split(":")[3])
+        await _send_recipe_photo(update, recipe_id)
     elif data.startswith("cook:bk:del:"):
         recipe_id = int(data.split(":")[3])
         await _delete_recipe_confirm(update, recipe_id)
@@ -615,7 +639,7 @@ async def recipe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _show_what_can_i_cook(update, user.id)
     elif data.startswith("cook:wc:v:"):
         recipe_id = int(data.split(":")[3])
-        await _show_recipe_detail(update, user.id, recipe_id)
+        await _show_recipe_detail(update, user.id, recipe_id, origin="wci")
 
 
 # ============================================================
@@ -627,7 +651,8 @@ async def manual_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Skip (no photo)", callback_data="cook:bk:nophoto")]
+        [InlineKeyboardButton("Skip (no photo)", callback_data="cook:bk:nophoto")],
+        _RECIPE_CANCEL_ROW,
     ])
     await query.edit_message_text(
         "+ <b>Add Recipe</b>\n\nSend a photo of the dish, or skip:",
@@ -650,25 +675,41 @@ async def manual_skip_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
     context.user_data["cook_recipe_photo"] = None
-    await query.edit_message_text("What's the recipe name?")
+    await query.edit_message_text(
+        "What's the recipe name?",
+        reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
+    )
     return ADD_NAME
 
 
 async def _ask_name(update, context):
+    keyboard = InlineKeyboardMarkup([_RECIPE_CANCEL_ROW])
     if update.callback_query:
-        await update.callback_query.edit_message_text("What's the recipe name?")
+        await update.callback_query.edit_message_text(
+            "What's the recipe name?",
+            reply_markup=keyboard,
+        )
     else:
-        await update.message.reply_text("What's the recipe name?")
+        await update.message.reply_text(
+            "What's the recipe name?",
+            reply_markup=keyboard,
+        )
 
 
 @require_auth
 async def manual_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     name = update.message.text.strip()
     if not name:
-        await update.message.reply_text("Name cannot be empty. Try again:")
+        await update.message.reply_text(
+            "Name cannot be empty. Try again:",
+            reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
+        )
         return ADD_NAME
     context.user_data["cook_recipe_name"] = name
-    await update.message.reply_text("How many servings does this make? (e.g. 2)")
+    await update.message.reply_text(
+        "How many servings does this make? (e.g. 2)",
+        reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
+    )
     return ADD_SERVINGS
 
 
@@ -680,7 +721,10 @@ async def manual_servings(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if servings < 1:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("Please enter a positive number:")
+        await update.message.reply_text(
+            "Please enter a positive number:",
+            reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
+        )
         return ADD_SERVINGS
 
     context.user_data["cook_recipe_servings"] = servings
@@ -689,6 +733,7 @@ async def manual_servings(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "Format: <code>200g chicken breast</code>\n"
         "Or just the name for 'to taste' items.\n\n"
         "Send all ingredients in one message:",
+        reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
         parse_mode="HTML",
     )
     return ADD_INGREDIENTS
@@ -704,13 +749,17 @@ async def manual_ingredients(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parsed.append(ing)
 
     if not parsed:
-        await update.message.reply_text("Couldn't parse any ingredients. Try again:")
+        await update.message.reply_text(
+            "Couldn't parse any ingredients. Try again:",
+            reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
+        )
         return ADD_INGREDIENTS
 
     context.user_data["cook_recipe_ingredients"] = parsed
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Skip (no equipment)", callback_data="cook:bk:noeq")]
+        [InlineKeyboardButton("Skip (no equipment)", callback_data="cook:bk:noeq")],
+        _RECIPE_CANCEL_ROW,
     ])
     await update.message.reply_text(
         "List equipment needed, comma-separated.\n"
@@ -729,7 +778,8 @@ async def manual_equipment_text(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["cook_recipe_equipment"] = equip
     await update.message.reply_text(
         "List the cooking steps, one per line.\n"
-        "Send all steps in one message:"
+        "Send all steps in one message:",
+        reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
     )
     return ADD_STEPS
 
@@ -741,7 +791,8 @@ async def manual_skip_equipment(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["cook_recipe_equipment"] = []
     await query.edit_message_text(
         "List the cooking steps, one per line.\n"
-        "Send all steps in one message:"
+        "Send all steps in one message:",
+        reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
     )
     return ADD_STEPS
 
@@ -750,7 +801,10 @@ async def manual_skip_equipment(update: Update, context: ContextTypes.DEFAULT_TY
 async def manual_steps(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     steps = update.message.text.strip()
     if not steps:
-        await update.message.reply_text("Steps cannot be empty. Try again:")
+        await update.message.reply_text(
+            "Steps cannot be empty. Try again:",
+            reply_markup=InlineKeyboardMarkup([_RECIPE_CANCEL_ROW]),
+        )
         return ADD_STEPS
 
     # Clean step numbers if present
@@ -801,7 +855,7 @@ async def _show_recipe_confirm(update, context):
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("\u2705 Save", callback_data="cook:bk:save"),
-            InlineKeyboardButton("\u274c Cancel", callback_data="cook:bk:cancel"),
+            InlineKeyboardButton("\u274c Cancel", callback_data="cook:bk:abort"),
         ]
     ])
 
@@ -819,9 +873,11 @@ async def manual_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = update.callback_query
     await query.answer()
 
-    if query.data == "cook:bk:cancel":
+    if query.data == "cook:bk:abort":
+        user = context.user_data["current_user"]
         _clear_recipe_data(context)
         await query.edit_message_text("\u274c Recipe cancelled.")
+        await _show_cookbook(update, user.id, send_new=True)
         return ConversationHandler.END
 
     user = context.user_data["current_user"]
@@ -856,7 +912,19 @@ async def manual_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     saved_name = data.get("cook_recipe_name", "")
     _clear_recipe_data(context)
-    await query.edit_message_text(f"\u2705 <b>{e(saved_name)}</b> saved!")
+    await query.edit_message_text(f"\u2705 <b>{e(saved_name)}</b> saved!", parse_mode="HTML")
+    await _show_cookbook(update, user.id, send_new=True)
+    return ConversationHandler.END
+
+
+@require_auth
+async def recipe_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the manual recipe add flow at any step."""
+    query = update.callback_query
+    await query.answer()
+    user = context.user_data["current_user"]
+    _clear_recipe_data(context)
+    await query.edit_message_text("\u274c Recipe cancelled.")
     await _show_cookbook(update, user.id, send_new=True)
     return ConversationHandler.END
 
@@ -879,6 +947,7 @@ async def import_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         "\U0001f4dd <b>Import Recipe</b>\n\n"
         "Paste the recipe text below.\n"
         "I'll structure it for you using AI.",
+        reply_markup=InlineKeyboardMarkup([_AI_CANCEL_ROW]),
         parse_mode="HTML",
     )
     return IMP_INPUT
@@ -888,7 +957,10 @@ async def import_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def import_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     raw_text = update.message.text.strip()
     if not raw_text:
-        await update.message.reply_text("Please paste some recipe text:")
+        await update.message.reply_text(
+            "Please paste some recipe text:",
+            reply_markup=InlineKeyboardMarkup([_AI_CANCEL_ROW]),
+        )
         return IMP_INPUT
 
     user = context.user_data["current_user"]
@@ -898,13 +970,19 @@ async def import_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     if result and result.get("error") == "rate_limited":
         await update.message.reply_text(
-            "\u26a0\ufe0f Daily AI limit reached (20/day). Try again tomorrow."
+            "\u26a0\ufe0f Daily AI limit reached (20/day). Try again tomorrow.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2190 Back to Menu", callback_data="cook:menu")]
+            ]),
         )
         return ConversationHandler.END
 
     if not result:
         await update.message.reply_text(
-            "\u274c Failed to parse recipe. Please try again or add manually."
+            "\u274c Failed to parse recipe. Please try again or add manually.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2190 Back to Menu", callback_data="cook:menu")]
+            ]),
         )
         return ConversationHandler.END
 
@@ -918,12 +996,16 @@ async def import_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await query.answer()
 
     if query.data == "cook:ai:discard":
+        user = context.user_data["current_user"]
         _clear_ai_data(context)
+        _clear_gen_data(context)
         await query.edit_message_text("\u274c Recipe discarded.")
+        await _show_cookbook(update, user.id, send_new=True)
         return ConversationHandler.END
 
     if query.data == "cook:ai:save":
-        return await _save_ai_recipe(update, context, source="text")
+        source = context.user_data.get("cook_ai_source", "text")
+        return await _save_ai_recipe(update, context, source=source)
 
     return IMP_REVIEW
 
@@ -988,6 +1070,7 @@ async def generate_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             row = []
     if row:
         buttons.append(row)
+    buttons.append(_AI_CANCEL_ROW)
 
     await query.edit_message_text(
         "\U0001f916 <b>Generate Recipe</b>\n\nPick a cuisine:",
@@ -1003,7 +1086,10 @@ async def gen_cuisine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await query.answer()
     cuisine = query.data.split(":")[3]
     context.user_data["cook_gen_cuisine"] = cuisine
-    await query.edit_message_text(f"How many servings? (e.g. 2)")
+    await query.edit_message_text(
+        "How many servings? (e.g. 2)",
+        reply_markup=InlineKeyboardMarkup([_AI_CANCEL_ROW]),
+    )
     return GEN_SERVINGS
 
 
@@ -1015,7 +1101,10 @@ async def gen_servings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         if servings < 1:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("Please enter a positive number:")
+        await update.message.reply_text(
+            "Please enter a positive number:",
+            reply_markup=InlineKeyboardMarkup([_AI_CANCEL_ROW]),
+        )
         return GEN_SERVINGS
 
     context.user_data["cook_gen_servings"] = servings
@@ -1029,6 +1118,7 @@ async def gen_servings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             row = []
     if row:
         buttons.append(row)
+    buttons.append(_AI_CANCEL_ROW)
 
     await update.message.reply_text(
         "Max cooking time?",
@@ -1048,7 +1138,8 @@ async def gen_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [
             InlineKeyboardButton("Yes can be spicy", callback_data="cook:gen:sp:1"),
             InlineKeyboardButton("No spice please", callback_data="cook:gen:sp:0"),
-        ]
+        ],
+        _AI_CANCEL_ROW,
     ])
     await query.edit_message_text("Spicy?", reply_markup=keyboard)
     return GEN_SPICY
@@ -1062,7 +1153,8 @@ async def gen_spicy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["cook_gen_spicy"] = spicy
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("No restrictions (skip)", callback_data="cook:gen:diet:skip")]
+        [InlineKeyboardButton("No restrictions (skip)", callback_data="cook:gen:diet:skip")],
+        _AI_CANCEL_ROW,
     ])
     await query.edit_message_text(
         "Any dietary restrictions?\n"
@@ -1125,16 +1217,22 @@ async def _do_generate(update, context):
         inventory_text=inventory_text,
     )
 
+    back_markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("\u2190 Back to Menu", callback_data="cook:menu")]
+    ])
+
     if result and result.get("error") == "rate_limited":
         await target.reply_text(
-            "\u26a0\ufe0f Daily AI limit reached (20/day). Try again tomorrow."
+            "\u26a0\ufe0f Daily AI limit reached (20/day). Try again tomorrow.",
+            reply_markup=back_markup,
         )
         _clear_gen_data(context)
         return ConversationHandler.END
 
     if not result:
         await target.reply_text(
-            "\u274c Failed to generate recipe. Please try again."
+            "\u274c Failed to generate recipe. Please try again.",
+            reply_markup=back_markup,
         )
         _clear_gen_data(context)
         return ConversationHandler.END
@@ -1243,8 +1341,22 @@ async def _save_ai_recipe(update, context, source="text"):
     name = recipe_data.get("name", "Untitled")
     _clear_ai_data(context)
     _clear_gen_data(context)
-    await query.edit_message_text(f"\u2705 <b>{e(name)}</b> saved!")
+    await query.edit_message_text(f"\u2705 <b>{e(name)}</b> saved!", parse_mode="HTML")
     await _show_cookbook(update, user.id, send_new=True)
+    return ConversationHandler.END
+
+
+@require_auth
+async def ai_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel an AI import or generate flow at any step."""
+    query = update.callback_query
+    await query.answer()
+    user = context.user_data["current_user"]
+    _clear_ai_data(context)
+    _clear_gen_data(context)
+    await query.edit_message_text("\u274c Cancelled.")
+    from apps.cook.handlers import _show_main_menu
+    await _show_main_menu(update, context, user.id, edit_message=False)
     return ConversationHandler.END
 
 
@@ -1260,67 +1372,134 @@ def _clear_gen_data(context):
 
 
 # ============================================================
+# Conversation Timeout Handler
+# ============================================================
+
+async def _cook_recipe_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Notify user when a cook recipe conversation times out."""
+    try:
+        if update.callback_query:
+            await update.effective_chat.send_message(
+                "\u23f1 Session timed out. Use /cook to return to the menu."
+            )
+        elif update.message:
+            await update.message.reply_text(
+                "\u23f1 Session timed out. Use /cook to return to the menu."
+            )
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+# ============================================================
 # Conversation Handler Factories
 # ============================================================
 
 def get_manual_add_handler() -> ConversationHandler:
+    abort = CallbackQueryHandler(recipe_add_cancel, pattern=r"^cook:bk:abort$")
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(manual_add_start, pattern=r"^cook:bk:add$")],
         states={
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _cook_recipe_timeout),
+                CallbackQueryHandler(_cook_recipe_timeout),
+            ],
             ADD_PHOTO: [
                 MessageHandler(filters.PHOTO, manual_photo),
                 CallbackQueryHandler(manual_skip_photo, pattern=r"^cook:bk:nophoto$"),
+                abort,
             ],
-            ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_name)],
-            ADD_SERVINGS: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_servings)],
-            ADD_INGREDIENTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_ingredients)],
+            ADD_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, manual_name),
+                abort,
+            ],
+            ADD_SERVINGS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, manual_servings),
+                abort,
+            ],
+            ADD_INGREDIENTS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, manual_ingredients),
+                abort,
+            ],
             ADD_EQUIPMENT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, manual_equipment_text),
                 CallbackQueryHandler(manual_skip_equipment, pattern=r"^cook:bk:noeq$"),
+                abort,
             ],
-            ADD_STEPS: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_steps)],
+            ADD_STEPS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, manual_steps),
+                abort,
+            ],
             ADD_CONFIRM: [
-                CallbackQueryHandler(manual_confirm, pattern=r"^cook:bk:(save|cancel)$"),
+                CallbackQueryHandler(manual_confirm, pattern=r"^cook:bk:(save|abort)$"),
             ],
         },
-        fallbacks=[],
+        fallbacks=[abort],
         conversation_timeout=120,
         per_message=False,
     )
 
 
 def get_import_handler() -> ConversationHandler:
+    cancel = CallbackQueryHandler(ai_cancel, pattern=r"^cook:ai:cancel$")
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(import_start, pattern=r"^cook:ai:imp$")],
         states={
-            IMP_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, import_text)],
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _cook_recipe_timeout),
+                CallbackQueryHandler(_cook_recipe_timeout),
+            ],
+            IMP_INPUT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, import_text),
+                cancel,
+            ],
             IMP_REVIEW: [
                 CallbackQueryHandler(import_review, pattern=r"^cook:ai:(save|discard)$"),
+                cancel,
             ],
         },
-        fallbacks=[],
+        fallbacks=[cancel],
         conversation_timeout=120,
         per_message=False,
     )
 
 
 def get_generate_handler() -> ConversationHandler:
+    cancel = CallbackQueryHandler(ai_cancel, pattern=r"^cook:ai:cancel$")
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(generate_start, pattern=r"^cook:ai:gen$")],
         states={
-            GEN_CUISINE: [CallbackQueryHandler(gen_cuisine, pattern=r"^cook:gen:c:")],
-            GEN_SERVINGS: [MessageHandler(filters.TEXT & ~filters.COMMAND, gen_servings)],
-            GEN_TIME: [CallbackQueryHandler(gen_time, pattern=r"^cook:gen:t:")],
-            GEN_SPICY: [CallbackQueryHandler(gen_spicy, pattern=r"^cook:gen:sp:")],
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _cook_recipe_timeout),
+                CallbackQueryHandler(_cook_recipe_timeout),
+            ],
+            GEN_CUISINE: [
+                CallbackQueryHandler(gen_cuisine, pattern=r"^cook:gen:c:"),
+                cancel,
+            ],
+            GEN_SERVINGS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, gen_servings),
+                cancel,
+            ],
+            GEN_TIME: [
+                CallbackQueryHandler(gen_time, pattern=r"^cook:gen:t:"),
+                cancel,
+            ],
+            GEN_SPICY: [
+                CallbackQueryHandler(gen_spicy, pattern=r"^cook:gen:sp:"),
+                cancel,
+            ],
             GEN_DIET: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, gen_diet_text),
                 CallbackQueryHandler(gen_diet_skip, pattern=r"^cook:gen:diet:skip$"),
+                cancel,
             ],
             GEN_REVIEW: [
                 CallbackQueryHandler(import_review, pattern=r"^cook:ai:(save|discard)$"),
+                cancel,
             ],
         },
-        fallbacks=[],
+        fallbacks=[cancel],
         conversation_timeout=120,
         per_message=False,
     )

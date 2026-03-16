@@ -339,6 +339,32 @@ async def _clear_bought_callback(
 # ============================================================
 
 @require_auth
+async def add_items_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the add-items conversation and return to grocery list."""
+    query = update.callback_query
+    await query.answer()
+    user = context.user_data["current_user"]
+    await _show_grocery_list(update, context, user.id, edit_message=True)
+    return ConversationHandler.END
+
+
+async def _groc_add_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Notify user when the add-items conversation times out."""
+    try:
+        if update.callback_query:
+            await update.effective_chat.send_message(
+                "\u23f1 Session timed out. Use /grocery to return to your list."
+            )
+        elif update.message:
+            await update.message.reply_text(
+                "\u23f1 Session timed out. Use /grocery to return to your list."
+            )
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+@require_auth
 async def add_items_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle [Add Items] button. Ask user to type items."""
     query = update.callback_query
@@ -348,6 +374,7 @@ async def add_items_start(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "\n"
         "Type items separated by commas:\n"
         "<i>milk, eggs, bread, 2x butter</i>",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2716 Cancel", callback_data="groc:add:cancel")]]),
         parse_mode="HTML",
     )
     return ADDING_ITEMS
@@ -363,16 +390,22 @@ async def add_items_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def get_add_items_conversation_handler() -> ConversationHandler:
     """Build the conversation handler for adding items via button."""
+    cancel = CallbackQueryHandler(add_items_cancel, pattern=r"^groc:add:cancel$")
     return ConversationHandler(
         entry_points=[
             CallbackQueryHandler(add_items_start, pattern="^groc:add$"),
         ],
         states={
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _groc_add_timeout),
+                CallbackQueryHandler(_groc_add_timeout),
+            ],
             ADDING_ITEMS: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, add_items_text),
+                cancel,
             ],
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        fallbacks=[cancel, CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
         conversation_timeout=120,
         per_message=False,
     )

@@ -37,6 +37,12 @@ SAUCE_EMOJI = "\U0001F9C2"   # 🧂
 EQUIP_EMOJI = "\U0001f373"   # 🍳
 RAW_EMOJI   = "\U0001f96c"   # 🥬
 
+# Shared cancel button for each inventory conversation
+_RAW_CANCEL_ROW  = [InlineKeyboardButton("\u2715 Cancel", callback_data="cook:raw:cancel")]
+_SC_CANCEL_ROW   = [InlineKeyboardButton("\u2715 Cancel", callback_data="cook:sc:cancel")]
+_EQ_CANCEL_ROW   = [InlineKeyboardButton("\u2715 Cancel", callback_data="cook:eq:cancel")]
+_BACK_TO_MENU    = [InlineKeyboardButton("\u2190 Back", callback_data="cook:menu")]
+
 
 # ============================================================
 # Main Menu
@@ -57,9 +63,7 @@ async def _show_main_menu(update, context, user_id, edit_message=False):
             InlineKeyboardButton(f"{SAUCE_EMOJI} Sauces", callback_data="cook:sauce"),
         ],
         [InlineKeyboardButton(f"{EQUIP_EMOJI} Equipment", callback_data="cook:equip")],
-        [
-            InlineKeyboardButton("\U0001f4d6 Cookbook", callback_data="cook:book"),
-        ],
+        [InlineKeyboardButton("\U0001f4d6 Cookbook", callback_data="cook:book")],
     ]
 
     if is_ai_enabled():
@@ -155,7 +159,10 @@ async def _show_raw_edit_picker(update, user_id):
         items = result.scalars().all()
 
     if not items:
-        await update.callback_query.edit_message_text("No items to edit.")
+        await update.callback_query.edit_message_text(
+            "No ingredients to edit.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:raw")]]),
+        )
         return
 
     buttons = []
@@ -178,7 +185,10 @@ async def _show_raw_edit_options(update, item_id):
         item = result.scalar_one_or_none()
 
     if not item:
-        await update.callback_query.edit_message_text("Item not found.")
+        await update.callback_query.edit_message_text(
+            "Item not found.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:raw")]]),
+        )
         return
 
     qty_str = f"{item.quantity:g}"
@@ -215,7 +225,10 @@ async def _show_raw_delete_picker(update, user_id):
         items = result.scalars().all()
 
     if not items:
-        await update.callback_query.edit_message_text("No items to delete.")
+        await update.callback_query.edit_message_text(
+            "No ingredients to delete.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:raw")]]),
+        )
         return
 
     buttons = []
@@ -327,7 +340,10 @@ async def _show_sauce_delete_picker(update, user_id):
         items = result.scalars().all()
 
     if not items:
-        await update.callback_query.edit_message_text("No sauces to delete.")
+        await update.callback_query.edit_message_text(
+            "No sauces to delete.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:sauce")]]),
+        )
         return
 
     buttons = []
@@ -439,7 +455,10 @@ async def _show_equip_delete_picker(update, user_id):
         items = result.scalars().all()
 
     if not items:
-        await update.callback_query.edit_message_text("No equipment to delete.")
+        await update.callback_query.edit_message_text(
+            "No equipment to delete.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:equip")]]),
+        )
         return
 
     buttons = []
@@ -462,9 +481,14 @@ async def _show_equip_delete_picker(update, user_id):
 @require_auth
 async def cook_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
     data = query.data
     user = context.user_data["current_user"]
+
+    # Suggestion taps get a toast; everything else gets a silent ack
+    if data.startswith("cook:sc:sa:") or data.startswith("cook:eq:sa:"):
+        await query.answer("Added!")
+    else:
+        await query.answer()
 
     # Navigation
     if data == "cook:menu":
@@ -546,7 +570,10 @@ async def _show_raw_delete_confirm(update, item_id):
         item = result.scalar_one_or_none()
 
     if not item:
-        await update.callback_query.edit_message_text("Item not found.")
+        await update.callback_query.edit_message_text(
+            "Item not found.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:raw")]]),
+        )
         return
 
     keyboard = InlineKeyboardMarkup([
@@ -578,6 +605,9 @@ async def _adjust_raw_qty(update, user_id, item_id, delta):
         )
         item = result.scalar_one_or_none()
         if item:
+            if item.quantity == 0 and delta < 0:
+                await update.callback_query.answer("Already at 0")
+                return
             item.quantity = max(0, item.quantity + delta)
             await db.commit()
     await _show_raw_edit_options(update, item_id)
@@ -593,7 +623,10 @@ async def _show_sauce_delete_confirm(update, item_id):
         item = result.scalar_one_or_none()
 
     if not item:
-        await update.callback_query.edit_message_text("Item not found.")
+        await update.callback_query.edit_message_text(
+            "Item not found.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:sauce")]]),
+        )
         return
 
     keyboard = InlineKeyboardMarkup([
@@ -629,7 +662,6 @@ async def _add_sauce_suggestion(update, user_id, idx):
         if not existing.scalar_one_or_none():
             db.add(CookSauce(user_id=user_id, name=name))
             await db.commit()
-    # Refresh the add menu so added item disappears from suggestions
     await _show_sauce_add_menu(update, user_id)
 
 
@@ -643,7 +675,10 @@ async def _show_equip_delete_confirm(update, item_id):
         item = result.scalar_one_or_none()
 
     if not item:
-        await update.callback_query.edit_message_text("Item not found.")
+        await update.callback_query.edit_message_text(
+            "Item not found.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2190 Back", callback_data="cook:equip")]]),
+        )
         return
 
     keyboard = InlineKeyboardMarkup([
@@ -679,7 +714,6 @@ async def _add_equip_suggestion(update, user_id, idx):
         if not existing.scalar_one_or_none():
             db.add(CookEquipment(user_id=user_id, name=name))
             await db.commit()
-    # Refresh the add menu so added item disappears from suggestions
     await _show_equip_add_menu(update, user_id)
 
 
@@ -691,7 +725,11 @@ async def _add_equip_suggestion(update, user_id, idx):
 async def raw_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("+ <b>Add Ingredient</b>\n\nType the ingredient name:", parse_mode="HTML")
+    await query.edit_message_text(
+        "+ <b>Add Ingredient</b>\n\nType the ingredient name:",
+        reply_markup=InlineKeyboardMarkup([_RAW_CANCEL_ROW]),
+        parse_mode="HTML",
+    )
     return RAW_NAME
 
 
@@ -702,7 +740,11 @@ async def raw_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await update.message.reply_text("Name cannot be empty. Try again:")
         return RAW_NAME
     context.user_data["cook_raw_name"] = name
-    await update.message.reply_text(f"How much <b>{e(name)}</b> do you have? (number only, e.g. 500, 1.5)\n<i>You'll pick the unit next.</i>", parse_mode="HTML")
+    await update.message.reply_text(
+        f"How much <b>{e(name)}</b> do you have? (number only, e.g. 500, 1.5)\n<i>You'll pick the unit next.</i>",
+        reply_markup=InlineKeyboardMarkup([_RAW_CANCEL_ROW]),
+        parse_mode="HTML",
+    )
     return RAW_QTY
 
 
@@ -714,7 +756,10 @@ async def raw_add_qty(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         if qty < 0:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("Please enter a valid non-negative number:")
+        await update.message.reply_text(
+            "Please enter a valid non-negative number:",
+            reply_markup=InlineKeyboardMarkup([_RAW_CANCEL_ROW]),
+        )
         return RAW_QTY
 
     context.user_data["cook_raw_qty"] = qty
@@ -729,6 +774,7 @@ async def raw_add_qty(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     if row:
         buttons.append(row)
     buttons.append([InlineKeyboardButton("Custom\u2026", callback_data="cook:raw:u:_custom")])
+    buttons.append(_RAW_CANCEL_ROW)
 
     await update.message.reply_text("What unit?", reply_markup=InlineKeyboardMarkup(buttons))
     return RAW_UNIT
@@ -741,7 +787,10 @@ async def raw_add_unit_callback(update: Update, context: ContextTypes.DEFAULT_TY
     unit = query.data.split(":")[3]
 
     if unit == "_custom":
-        await query.edit_message_text("Type a custom unit:")
+        await query.edit_message_text(
+            "Type a custom unit:",
+            reply_markup=InlineKeyboardMarkup([_RAW_CANCEL_ROW]),
+        )
         return RAW_UNIT_CUSTOM
 
     return await _save_raw_material(update, context, unit)
@@ -751,9 +800,24 @@ async def raw_add_unit_callback(update: Update, context: ContextTypes.DEFAULT_TY
 async def raw_add_unit_custom(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     unit = update.message.text.strip()
     if not unit:
-        await update.message.reply_text("Unit cannot be empty. Try again:")
+        await update.message.reply_text(
+            "Unit cannot be empty. Try again:",
+            reply_markup=InlineKeyboardMarkup([_RAW_CANCEL_ROW]),
+        )
         return RAW_UNIT_CUSTOM
     return await _save_raw_material(update, context, unit)
+
+
+@require_auth
+async def raw_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    context.user_data.pop("cook_raw_name", None)
+    context.user_data.pop("cook_raw_qty", None)
+    await query.edit_message_text("\u2715 Cancelled.")
+    user = context.user_data["current_user"]
+    await _show_raw_materials(update, user.id, send_new=True)
+    return ConversationHandler.END
 
 
 async def _save_raw_material(update, context, unit):
@@ -779,7 +843,6 @@ async def _save_raw_material(update, context, unit):
         db.add(CookRawMaterial(user_id=user.id, name=name, quantity=qty, unit=unit))
         await db.commit()
 
-    # Show updated raw materials list so user can keep adding or go back
     await _show_raw_materials(update, user.id, send_new=True)
     return ConversationHandler.END
 
@@ -792,7 +855,11 @@ async def _save_raw_material(update, context, unit):
 async def sauce_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(f"+ <b>Custom Sauce</b>\n\nType the sauce/condiment name:", parse_mode="HTML")
+    await query.edit_message_text(
+        "+ <b>Custom Sauce</b>\n\nType the sauce/condiment name:",
+        reply_markup=InlineKeyboardMarkup([_SC_CANCEL_ROW]),
+        parse_mode="HTML",
+    )
     return SAUCE_NAME
 
 
@@ -800,7 +867,10 @@ async def sauce_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def sauce_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     name = update.message.text.strip()
     if not name:
-        await update.message.reply_text("Name cannot be empty. Try again:")
+        await update.message.reply_text(
+            "Name cannot be empty. Try again:",
+            reply_markup=InlineKeyboardMarkup([_SC_CANCEL_ROW]),
+        )
         return SAUCE_NAME
 
     user = context.user_data["current_user"]
@@ -816,7 +886,16 @@ async def sauce_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         db.add(CookSauce(user_id=user.id, name=name))
         await db.commit()
 
-    # Show updated sauces list so user can keep adding or go back
+    await _show_sauces(update, user.id, send_new=True)
+    return ConversationHandler.END
+
+
+@require_auth
+async def sauce_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("\u2715 Cancelled.")
+    user = context.user_data["current_user"]
     await _show_sauces(update, user.id, send_new=True)
     return ConversationHandler.END
 
@@ -829,7 +908,11 @@ async def sauce_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def equip_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(f"+ <b>Custom Equipment</b>\n\nType the equipment name:", parse_mode="HTML")
+    await query.edit_message_text(
+        "+ <b>Custom Equipment</b>\n\nType the equipment name:",
+        reply_markup=InlineKeyboardMarkup([_EQ_CANCEL_ROW]),
+        parse_mode="HTML",
+    )
     return EQUIP_NAME
 
 
@@ -837,7 +920,10 @@ async def equip_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def equip_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     name = update.message.text.strip()
     if not name:
-        await update.message.reply_text("Name cannot be empty. Try again:")
+        await update.message.reply_text(
+            "Name cannot be empty. Try again:",
+            reply_markup=InlineKeyboardMarkup([_EQ_CANCEL_ROW]),
+        )
         return EQUIP_NAME
 
     user = context.user_data["current_user"]
@@ -853,8 +939,37 @@ async def equip_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         db.add(CookEquipment(user_id=user.id, name=name))
         await db.commit()
 
-    # Show updated equipment list so user can keep adding or go back
     await _show_equipment(update, user.id, send_new=True)
+    return ConversationHandler.END
+
+
+@require_auth
+async def equip_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("\u2715 Cancelled.")
+    user = context.user_data["current_user"]
+    await _show_equipment(update, user.id, send_new=True)
+    return ConversationHandler.END
+
+
+# ============================================================
+# Conversation Timeout Handler
+# ============================================================
+
+async def _cook_conv_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Notify user when a cook inventory conversation times out."""
+    try:
+        if update.callback_query:
+            await update.effective_chat.send_message(
+                "\u23f1 Session timed out. Use /cook to return to the menu."
+            )
+        elif update.message:
+            await update.message.reply_text(
+                "\u23f1 Session timed out. Use /cook to return to the menu."
+            )
+    except Exception:
+        pass
     return ConversationHandler.END
 
 
@@ -863,41 +978,54 @@ async def equip_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # ============================================================
 
 def get_raw_add_handler() -> ConversationHandler:
+    cancel = CallbackQueryHandler(raw_add_cancel, pattern=r"^cook:raw:cancel$")
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(raw_add_start, pattern=r"^cook:raw:add$")],
         states={
-            RAW_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, raw_add_name)],
-            RAW_QTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, raw_add_qty)],
-            RAW_UNIT: [CallbackQueryHandler(raw_add_unit_callback, pattern=r"^cook:raw:u:")],
-            RAW_UNIT_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, raw_add_unit_custom)],
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _cook_conv_timeout),
+                CallbackQueryHandler(_cook_conv_timeout),
+            ],
+            RAW_NAME:        [MessageHandler(filters.TEXT & ~filters.COMMAND, raw_add_name), cancel],
+            RAW_QTY:         [MessageHandler(filters.TEXT & ~filters.COMMAND, raw_add_qty), cancel],
+            RAW_UNIT:        [CallbackQueryHandler(raw_add_unit_callback, pattern=r"^cook:raw:u:"), cancel],
+            RAW_UNIT_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, raw_add_unit_custom), cancel],
         },
-        fallbacks=[],
+        fallbacks=[cancel],
         conversation_timeout=120,
         per_message=False,
     )
 
 
 def get_sauce_add_handler() -> ConversationHandler:
-    # Entry is cook:sc:custom (the "Custom" button in the suggestions menu)
+    cancel = CallbackQueryHandler(sauce_add_cancel, pattern=r"^cook:sc:cancel$")
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(sauce_add_start, pattern=r"^cook:sc:custom$")],
         states={
-            SAUCE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, sauce_add_name)],
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _cook_conv_timeout),
+                CallbackQueryHandler(_cook_conv_timeout),
+            ],
+            SAUCE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, sauce_add_name), cancel],
         },
-        fallbacks=[],
+        fallbacks=[cancel],
         conversation_timeout=120,
         per_message=False,
     )
 
 
 def get_equip_add_handler() -> ConversationHandler:
-    # Entry is cook:eq:custom (the "Custom" button in the suggestions menu)
+    cancel = CallbackQueryHandler(equip_add_cancel, pattern=r"^cook:eq:cancel$")
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(equip_add_start, pattern=r"^cook:eq:custom$")],
         states={
-            EQUIP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, equip_add_name)],
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, _cook_conv_timeout),
+                CallbackQueryHandler(_cook_conv_timeout),
+            ],
+            EQUIP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, equip_add_name), cancel],
         },
-        fallbacks=[],
+        fallbacks=[cancel],
         conversation_timeout=120,
         per_message=False,
     )
